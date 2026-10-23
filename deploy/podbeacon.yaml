@@ -1,18 +1,18 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: podwatch
+  name: podbeacon
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: podwatch
-  namespace: podwatch
+  name: podbeacon
+  namespace: podbeacon
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: podwatch
+  name: podbeacon
 rules:
   - apiGroups: [""]
     resources: ["pods", "events"]
@@ -24,36 +24,36 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: podwatch
+  name: podbeacon
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: podwatch
+  name: podbeacon
 subjects:
   - kind: ServiceAccount
-    name: podwatch
-    namespace: podwatch
+    name: podbeacon
+    namespace: podbeacon
 ---
 # One replica. Alert silence lives in process memory;
 # two replicas would post the same message.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: podwatch
-  namespace: podwatch
+  name: podbeacon
+  namespace: podbeacon
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: podwatch
+      app: podbeacon
   template:
     metadata:
       labels:
-        app: podwatch
+        app: podbeacon
     spec:
-      serviceAccountName: podwatch
+      serviceAccountName: podbeacon
       imagePullSecrets:
         - name: ghcr
       automountServiceAccountToken: true
@@ -64,8 +64,8 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: podwatch
-          image: ghcr.io/nopp/k8s-agent-ai:1.0.4
+        - name: podbeacon
+          image: ghcr.io/nopp/k8s-agent-ai:1.1.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -74,7 +74,7 @@ spec:
               drop: ["ALL"]
           envFrom:
             - secretRef:
-                name: podwatch
+                name: podbeacon
           env:
             - name: POLL_INTERVAL
               value: 1m

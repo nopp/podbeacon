@@ -1,4 +1,4 @@
-// Package config reads the process environment for podwatch.
+// Package config reads the process environment for podbeacon.
 package config
 
 import (

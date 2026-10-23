@@ -1,5 +1,5 @@
 .env
 bin/
-/podwatch
+/podbeacon
 *.exe
 .DS_Store

@@ -151,7 +151,7 @@ func (c *Client) Diagnose(ctx context.Context, evidence string) (Diagnosis, erro
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
-	req.Header.Set("User-Agent", "podwatch/0.1")
+	req.Header.Set("User-Agent", "podbeacon")
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

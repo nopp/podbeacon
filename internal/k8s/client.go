@@ -19,7 +19,7 @@ func NewClientset() (kubernetes.Interface, error) {
 	cfg.QPS = 20
 	cfg.Burst = 40
 	cfg.Timeout = 30 * time.Second
-	cfg.UserAgent = "podwatch/0.1"
+	cfg.UserAgent = "podbeacon"
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create kubernetes client: %w", err)

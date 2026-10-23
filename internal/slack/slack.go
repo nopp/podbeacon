@@ -310,7 +310,7 @@ func (c *Client) Send(ctx context.Context, msg Message) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "podwatch/0.1")
+	req.Header.Set("User-Agent", "podbeacon")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

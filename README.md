@@ -1,6 +1,12 @@
-# podwatch
+<img src="assets/logo.png" alt="podbeacon" width="240">
 
-A Go agent that finds unhealthy Pods, asks Grok for a likely cause, and posts the hypothesis to a Slack channel. When that problem later clears, it posts whether the Pod recovered or is gone.
+# podbeacon
+
+kubernetes Pod Health & Alerting Agent
+
+A Go agent that finds unhealthy Pods, asks a model for a likely cause, and posts the hypothesis to a Slack channel. When that problem later clears, it posts whether the Pod recovered or is gone.
+
+For now, Grok is the only model. ChatGPT and Claude are planned.
 
 The scan talks only to the Kubernetes API. The model API is called only when a Pod is new enough to alert on.
 
@@ -12,11 +18,11 @@ The scan talks only to the Kubernetes API. The model API is called only when a P
 4. That report goes out in a single `POST /v1/responses` call (`XAI_MODEL`, default `grok-4.7`). There are no tools and no conversation continuation. The request sets `store: false`.
 5. The answer becomes one Slack message: pod, a short reason (not the raw API error), the container image when it matters, and, when known, phase, node, and restart count, then a one-line likely cause and up to three checks. The message says the cause is a hypothesis.
 
-Silence is kept in the process memory. Two replicas would send the same message. The Deployment in `deploy/podwatch.yaml` uses one replica and the `Recreate` strategy.
+Silence is kept in the process memory. Two replicas would send the same message. The Deployment in `deploy/podbeacon.yaml` uses one replica and the `Recreate` strategy.
 
 ### When the problem is gone
 
-A later scan checks every Pod that already produced a card. If the Pod is still in the cluster and that problem is gone, podwatch posts a short card that says the Pod was corrected. If the Pod is missing from the API, or Kubernetes is deleting it, the card says the Pod is gone. The card repeats the problem that was alerted. It does not call the model, and it does not count toward `MAX_ALERTS_PER_SCAN`.
+A later scan checks every Pod that already produced a card. If the Pod is still in the cluster and that problem is gone, podbeacon posts a short card that says the Pod was corrected. If the Pod is missing from the API, or Kubernetes is deleting it, the card says the Pod is gone. The card repeats the problem that was alerted. It does not call the model, and it does not count toward `MAX_ALERTS_PER_SCAN`.
 
 ```
 *payments/api*
@@ -27,7 +33,7 @@ If Slack rejects the card, the next scan tries again. After the card is sent, th
 
 ### Credit fallback
 
-When the xAI account is out of prepaid credits, or the invoiced spending limit has been reached, podwatch still posts to Slack. That card names the pod and the problem, plus phase, node, and restart count when those are known. It does not include a likely cause, checks, or any other suggestion.
+When the xAI account is out of prepaid credits, or the invoiced spending limit has been reached, podbeacon still posts to Slack. That card names the pod and the problem, plus phase, node, and restart count when those are known. It does not include a likely cause, checks, or any other suggestion.
 
 ```
 *payments/api*
@@ -103,7 +109,7 @@ Fill in `XAI_API_KEY` and `SLACK_WEBHOOK_URL`. For a first test, limit the scope
 
 ```bash
 set -a && source .env && set +a
-go run ./cmd/podwatch --once --dry-run
+go run ./cmd/podbeacon --once --dry-run
 ```
 
 Without `--dry-run`, the message goes to Slack. Without `--once`, the process loops until `SIGINT` or `SIGTERM`.
@@ -131,22 +137,22 @@ The package is at [github.com/nopp/k8s-agent-ai/pkgs](https://github.com/nopp/k8
 
 ## Run in the cluster
 
-The manifest creates the `podwatch` namespace, the ServiceAccount, `get/list/watch` on pods and events, `get` on `pods/log`, and the Deployment. The image is `ghcr.io/nopp/k8s-agent-ai:0.0.3`, with `imagePullPolicy: IfNotPresent`. The `ghcr` secret lets the node pull that image.
+The manifest creates the `podbeacon` namespace, the ServiceAccount, `get/list/watch` on pods and events, `get` on `pods/log`, and the Deployment. The image is `ghcr.io/nopp/k8s-agent-ai:1.0.5`, with `imagePullPolicy: IfNotPresent`. The `ghcr` secret lets the node pull that image.
 
 Create a classic PAT with `read:packages`, or a fine-grained token that can read packages in this repository.
 
 ```bash
-kubectl apply -f deploy/podwatch.yaml
-kubectl -n podwatch create secret docker-registry ghcr \
+kubectl apply -f deploy/podbeacon.yaml
+kubectl -n podbeacon create secret docker-registry ghcr \
   --docker-server=ghcr.io \
   --docker-username=nopp \
   --docker-password='<PAT with read:packages>'
-kubectl -n podwatch create secret generic podwatch \
+kubectl -n podbeacon create secret generic podbeacon \
   --from-literal=XAI_API_KEY='...' \
   --from-literal=SLACK_WEBHOOK_URL='https://hooks.slack.com/services/...'
-kubectl -n podwatch rollout restart deployment/podwatch
+kubectl -n podbeacon rollout restart deployment/podbeacon
 ```
 
-To publish another version, change the image tag in the Deployment, for example `ghcr.io/nopp/k8s-agent-ai:0.0.4`, and apply again. The workflow also publishes `:latest`, but the manifest uses the pinned version.
+To publish another version, change the image tag in the Deployment and apply again. The workflow also publishes `:latest`, but the manifest uses the pinned version.
 
-The `podwatch` Secret is loaded with `envFrom`. The interval, grace period, cooldown, excluded namespaces, and alert cap are set on the Deployment and can be changed there.
+The `podbeacon` Secret is loaded with `envFrom`. The interval, grace period, cooldown, excluded namespaces, and alert cap are set on the Deployment and can be changed there.

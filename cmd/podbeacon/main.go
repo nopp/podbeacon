@@ -36,6 +36,7 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger.Info("podbeacon", "headline", "kubernetes Pod Health & Alerting Agent")
 	client, err := k8s.NewClientset()
 	if err != nil {
 		logger.Error("kubernetes", "err", err)
@@ -73,7 +74,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := app.Run(ctx); err != nil {
-		logger.Error("encerrado", "err", err)
+		logger.Error("stopped", "err", err)
 		os.Exit(1)
 	}
 }
