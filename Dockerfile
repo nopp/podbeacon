@@ -1,13 +1,10 @@
-# Build on the runner's own CPU and cross-compile. Emulating the Go
-# compiler with QEMU turns this small binary into a very long build.
-FROM --platform=$BUILDPLATFORM golang:1.25 AS build
+FROM golang:1.25 AS build
 WORKDIR /src
-ARG TARGETOS
-ARG TARGETARCH
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+# The lab cluster is amd64. client-go is most of this compile.
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" -o /podwatch ./cmd/podwatch
 
 FROM gcr.io/distroless/static-debian12:nonroot

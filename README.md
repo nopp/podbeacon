@@ -102,7 +102,7 @@ go test ./...
 
 ## Publish the image
 
-[`.github/workflows/docker.yml`](.github/workflows/docker.yml) runs on `v*` tags. It logs in to GHCR with `GITHUB_TOKEN` and publishes `ghcr.io/nopp/k8s-agent-ai` for `linux/amd64` and `linux/arm64`.
+[`.github/workflows/docker.yml`](.github/workflows/docker.yml) runs on `v*` tags. It logs in to GHCR with `GITHUB_TOKEN` and publishes `ghcr.io/nopp/k8s-agent-ai` for `linux/amd64` only. The lab nodes are amd64.
 
 A `v1.2.3` tag produces these image tags:
 
