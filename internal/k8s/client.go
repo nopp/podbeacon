@@ -22,7 +22,7 @@ func NewClientset() (kubernetes.Interface, error) {
 	cfg.UserAgent = "podwatch/0.1"
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("criar cliente kubernetes: %w", err)
+		return nil, fmt.Errorf("create kubernetes client: %w", err)
 	}
 	return cs, nil
 }
@@ -36,7 +36,7 @@ func restConfig() (*rest.Config, error) {
 		&clientcmd.ConfigOverrides{},
 	).ClientConfig()
 	if err != nil {
-		return nil, fmt.Errorf("configurar acesso ao cluster: %w", err)
+		return nil, fmt.Errorf("configure cluster access: %w", err)
 	}
 	return cfg, nil
 }

@@ -27,31 +27,31 @@ type Diagnosis struct {
 	NextChecks []string `json:"next_checks"`
 }
 
-const systemPrompt = `Você é um engenheiro de plantão analisando um Pod do Kubernetes.
-Use somente o relato enviado. Se a evidência não bastar, diga isso e use confiança baixa.
-Não invente métrica, nome de Secret, linha de log ou evento que não esteja no relato.
-Não sugira ação destrutiva (apagar recurso, reduzir réplicas a zero, remover volume, force delete).
-next_checks são verificações, no máximo três.
-Responda em português do Brasil.`
+const systemPrompt = `You are an on-call engineer looking at one Kubernetes Pod.
+Use only the report you are given. If the evidence is not enough, say so and set confidence to low.
+Do not invent metrics, Secret names, log lines, or events that are not in the report.
+Do not suggest a destructive action (delete a resource, scale replicas to zero, remove a volume, force delete).
+next_checks are checks a human should do, at most three.
+Reply in English.`
 
 // diagnosisSchema is sent as text.format.schema on the Responses API.
 const diagnosisSchema = `{
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "summary": {"type": "string", "maxLength": 500, "description": "Uma frase com a causa mais provável."},
-    "confidence": {"type": "string", "enum": ["baixa", "media", "alta"]},
+    "summary": {"type": "string", "maxLength": 500, "description": "One sentence with the most likely cause."},
+    "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
     "evidence": {
       "type": "array",
       "maxItems": 4,
       "items": {"type": "string", "maxLength": 300},
-      "description": "Indícios que aparecem no relato."
+      "description": "Clues that appear in the report."
     },
     "next_checks": {
       "type": "array",
       "maxItems": 3,
       "items": {"type": "string", "maxLength": 300},
-      "description": "Verificações que um humano deve fazer. Sem comandos destrutivos."
+      "description": "Checks a human should do. No destructive commands."
     }
   },
   "required": ["summary", "confidence", "evidence", "next_checks"]
@@ -60,7 +60,7 @@ const diagnosisSchema = `{
 // ErrOutOfCredits means the account has no prepaid credits left, or it hit
 // the invoiced spending limit. The caller should report the pod without a
 // model hypothesis.
-var ErrOutOfCredits = errors.New("créditos da IA esgotados")
+var ErrOutOfCredits = errors.New("AI credits exhausted")
 
 // Client calls POST /v1/responses.
 type Client struct {
@@ -155,40 +155,40 @@ func (c *Client) Diagnose(ctx context.Context, evidence string) (Diagnosis, erro
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return Diagnosis{}, fmt.Errorf("chamar o modelo: %w", err)
+		return Diagnosis{}, fmt.Errorf("call the model: %w", err)
 	}
 	defer resp.Body.Close()
 	respRaw, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
-		return Diagnosis{}, fmt.Errorf("ler resposta do modelo: %w", err)
+		return Diagnosis{}, fmt.Errorf("read the model response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if outOfCredits(resp.StatusCode, respRaw) {
 			return Diagnosis{}, fmt.Errorf("%w: %s", ErrOutOfCredits, clip(string(respRaw), 300))
 		}
-		return Diagnosis{}, fmt.Errorf("modelo respondeu %s: %s", resp.Status, clip(string(respRaw), 300))
+		return Diagnosis{}, fmt.Errorf("model returned %s: %s", resp.Status, clip(string(respRaw), 300))
 	}
 	var decoded responseBody
 	if err := json.Unmarshal(respRaw, &decoded); err != nil {
-		return Diagnosis{}, fmt.Errorf("decodificar resposta do modelo: %w", err)
+		return Diagnosis{}, fmt.Errorf("decode the model response: %w", err)
 	}
 	if msg := errorMessage(decoded.Error); msg != "" {
 		if outOfCredits(resp.StatusCode, respRaw) {
 			return Diagnosis{}, fmt.Errorf("%w: %s", ErrOutOfCredits, msg)
 		}
-		return Diagnosis{}, fmt.Errorf("resposta do modelo: %s", msg)
+		return Diagnosis{}, fmt.Errorf("model response: %s", msg)
 	}
 	text := outputText(decoded)
 	if strings.TrimSpace(text) == "" {
-		return Diagnosis{}, fmt.Errorf("modelo não devolveu texto (status %s, id %s)", decoded.Status, decoded.ID)
+		return Diagnosis{}, fmt.Errorf("model returned no text (status %s, id %s)", decoded.Status, decoded.ID)
 	}
 	var diag Diagnosis
 	if err := json.Unmarshal([]byte(extractJSON(text)), &diag); err != nil {
-		return Diagnosis{}, fmt.Errorf("diagnóstico fora do formato: %w", err)
+		return Diagnosis{}, fmt.Errorf("diagnosis has the wrong shape: %w", err)
 	}
 	diag = normalize(diag)
 	if diag.Summary == "" && len(diag.Evidence) == 0 && len(diag.NextChecks) == 0 {
-		return Diagnosis{}, fmt.Errorf("diagnóstico vazio (id %s)", decoded.ID)
+		return Diagnosis{}, fmt.Errorf("empty diagnosis (id %s)", decoded.ID)
 	}
 	return diag, nil
 }
@@ -196,8 +196,8 @@ func (c *Client) Diagnose(ctx context.Context, evidence string) (Diagnosis, erro
 // Fallback is used when the model call fails. The pod problem is still reported.
 func Fallback(signal string) Diagnosis {
 	d := Diagnosis{
-		Summary:    "A análise automática falhou. Vale olhar os eventos e os logs deste pod.",
-		Confidence: "baixa",
+		Summary:    "Automatic analysis failed. Check the events and logs for this pod.",
+		Confidence: "low",
 	}
 	if signal != "" {
 		d.Evidence = []string{clip(signal, 300)}
@@ -223,9 +223,12 @@ func outputText(resp responseBody) string {
 func normalize(d Diagnosis) Diagnosis {
 	d.Summary = clip(strings.TrimSpace(d.Summary), 500)
 	switch d.Confidence {
-	case "baixa", "media", "alta":
+	case "high", "alta":
+		d.Confidence = "high"
+	case "medium", "media":
+		d.Confidence = "medium"
 	default:
-		d.Confidence = "baixa"
+		d.Confidence = "low"
 	}
 	d.Evidence = clipList(d.Evidence, 4)
 	d.NextChecks = clipList(d.NextChecks, 3)

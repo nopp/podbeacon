@@ -20,8 +20,7 @@ A later scan checks every Pod that already produced a card. If the Pod is still 
 
 ```
 *payments/api*
-*Estado:* Corrigido
-*Problema:* CrashLoopBackOff · api
+Resolved · CrashLoopBackOff · api
 ```
 
 If Slack rejects the card, the next scan tries again. After the card is sent, the same problem can alert again immediately, including during `ALERT_COOLDOWN`. A restart forgets which cards are still open, so it does not send a closing card for alerts posted before the restart. A Pod that is still unhealthy, only with a different reason, stays open and gets a new problem card instead of a closing one.
@@ -32,8 +31,8 @@ When the xAI account is out of prepaid credits, or the invoiced spending limit h
 
 ```
 *payments/api*
-*Problema:* CrashLoopBackOff · api
-*Fase:* Running
+CrashLoopBackOff · api
+Running
 ```
 
 The rest of that scan does not call the model. The next scan tries again, so adding credits resumes diagnosis without a process restart. Any other model failure still posts the problem with a note that the automatic analysis did not come back. If Slack itself fails, the pod is not silenced and the next scan retries.

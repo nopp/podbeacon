@@ -105,9 +105,9 @@ func (s *Scanner) podsInScope(ctx context.Context) ([]corev1.Pod, error) {
 		if err != nil {
 			where := ns
 			if where == "" {
-				where = "todos os namespaces"
+				where = "all namespaces"
 			}
-			return nil, fmt.Errorf("listar pods em %s: %w", where, err)
+			return nil, fmt.Errorf("list pods in %s: %w", where, err)
 		}
 		for i := range pods {
 			if _, skip := s.exclude[pods[i].Namespace]; skip {

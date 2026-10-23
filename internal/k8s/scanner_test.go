@@ -110,7 +110,7 @@ func TestEnrichRecordsLogFailure(t *testing.T) {
 	if !strings.Contains(text, "BackOff") {
 		t.Fatalf("events missing from evidence:\n%s", text)
 	}
-	if !strings.Contains(text, "leitura indisponível") && !strings.Contains(text, "Logs:") {
+	if !strings.Contains(text, "log unavailable") && !strings.Contains(text, "Logs:") {
 		t.Fatalf("expected a log note:\n%s", text)
 	}
 }

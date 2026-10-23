@@ -20,18 +20,18 @@ import (
 )
 
 func main() {
-	once := flag.Bool("once", false, "faz uma varredura e encerra")
-	dry := flag.Bool("dry-run", false, "imprime a mensagem e não envia ao Slack")
+	once := flag.Bool("once", false, "scan once and exit")
+	dry := flag.Bool("dry-run", false, "print the message and do not call Slack")
 	flag.Parse()
 
 	cfg, err := config.Parse()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "configuração: %v\n", err)
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		os.Exit(1)
 	}
 	cfg = cfg.WithFlags(*once, *dry)
 	if err := cfg.Validate(); err != nil {
-		fmt.Fprintf(os.Stderr, "configuração: %v\n", err)
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		os.Exit(1)
 	}
 

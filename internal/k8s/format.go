@@ -67,7 +67,7 @@ func (r Report) Signal() string {
 	var parts []string
 	for i, reason := range r.Reasons {
 		if i == 3 {
-			parts = append(parts, fmt.Sprintf("e mais %d", len(r.Reasons)-3))
+			parts = append(parts, fmt.Sprintf("and %d more", len(r.Reasons)-3))
 			break
 		}
 		parts = append(parts, reason.Text)
@@ -77,13 +77,17 @@ func (r Report) Signal() string {
 		bits = append(bits, strings.Join(parts, "; "))
 	}
 	if r.Phase != "" {
-		bits = append(bits, "fase "+r.Phase)
+		bits = append(bits, "phase "+r.Phase)
 	}
 	if r.Node != "" {
 		bits = append(bits, "node "+r.Node)
 	}
 	if n := r.problemRestarts(); n > 0 {
-		bits = append(bits, fmt.Sprintf("%d reinícios", n))
+		if n == 1 {
+			bits = append(bits, "1 restart")
+		} else {
+			bits = append(bits, fmt.Sprintf("%d restarts", n))
+		}
 	}
 	return strings.Join(bits, " · ")
 }
@@ -126,13 +130,13 @@ func (r Report) Evidence() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Pod: %s/%s\n", r.Namespace, r.Name)
 	if len(r.Owners) > 0 {
-		fmt.Fprintf(&b, "Dono: %s\n", strings.Join(r.Owners, ", "))
+		fmt.Fprintf(&b, "Owner: %s\n", strings.Join(r.Owners, ", "))
 	}
 	if r.Node != "" {
 		fmt.Fprintf(&b, "Node: %s\n", r.Node)
 	}
-	fmt.Fprintf(&b, "Fase: %s\n", emptyDash(r.Phase))
-	fmt.Fprintf(&b, "Idade: %s\n", humanDur(r.Age))
+	fmt.Fprintf(&b, "Phase: %s\n", emptyDash(r.Phase))
+	fmt.Fprintf(&b, "Age: %s\n", humanDur(r.Age))
 	if r.QoS != "" {
 		fmt.Fprintf(&b, "QoS: %s\n", r.QoS)
 	}
@@ -140,14 +144,14 @@ func (r Report) Evidence() string {
 		fmt.Fprintf(&b, "Labels: %s\n", strings.Join(r.Labels, ", "))
 	}
 	if len(r.Reasons) > 0 {
-		b.WriteString("Sinais:\n")
+		b.WriteString("Signals:\n")
 		for _, reason := range r.Reasons {
 			fmt.Fprintf(&b, "- %s\n", reason.Text)
 		}
 	}
 	writeContainers(&b, r.Containers)
 	if len(r.Conditions) > 0 {
-		b.WriteString("Condições:\n")
+		b.WriteString("Conditions:\n")
 		conds := r.Conditions
 		if len(conds) > 8 {
 			conds = conds[:8]
@@ -158,9 +162,9 @@ func (r Report) Evidence() string {
 	}
 	switch {
 	case r.EventNote != "":
-		fmt.Fprintf(&b, "Eventos: indisponíveis (%s)\n", r.EventNote)
+		fmt.Fprintf(&b, "Events: unavailable (%s)\n", r.EventNote)
 	case len(r.Events) > 0:
-		b.WriteString("Eventos:\n")
+		b.WriteString("Events:\n")
 		ev := r.Events
 		if len(ev) > 12 {
 			ev = ev[len(ev)-12:]
@@ -187,16 +191,16 @@ func writeContainers(b *strings.Builder, containers []Container) {
 		if c.Init {
 			kind = "init"
 		}
-		fmt.Fprintf(b, "- %s %s image=%s ready=%t reinícios=%d\n", kind, c.Name, emptyDash(c.Image), c.Ready, c.Restarts)
+		fmt.Fprintf(b, "- %s %s image=%s ready=%t restarts=%d\n", kind, c.Name, emptyDash(c.Image), c.Ready, c.Restarts)
 		if c.StateLine != "" {
-			fmt.Fprintf(b, "  estado: %s\n", c.StateLine)
+			fmt.Fprintf(b, "  state: %s\n", c.StateLine)
 		}
 		if c.LastLine != "" {
-			fmt.Fprintf(b, "  anterior: %s\n", c.LastLine)
+			fmt.Fprintf(b, "  previous: %s\n", c.LastLine)
 		}
 	}
 	if len(containers) > show {
-		fmt.Fprintf(b, "- e mais %d containers\n", len(containers)-show)
+		fmt.Fprintf(b, "- and %d more containers\n", len(containers)-show)
 	}
 }
 
@@ -211,13 +215,13 @@ func writeLogs(b *strings.Builder, logs []LogSnippet) {
 	for _, lg := range logs {
 		label := lg.Container
 		if lg.Previous {
-			label += " (anterior)"
+			label += " (previous)"
 		}
 		switch {
 		case lg.Text != "":
 			fmt.Fprintf(b, "- %s:\n%s\n", label, clip(lg.Text, 6000))
 		case lg.Note != "":
-			fmt.Fprintf(b, "- %s: leitura indisponível (%s)\n", label, lg.Note)
+			fmt.Fprintf(b, "- %s: log unavailable (%s)\n", label, lg.Note)
 		}
 	}
 }

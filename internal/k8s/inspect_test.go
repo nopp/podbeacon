@@ -80,12 +80,12 @@ func TestEvidenceIncludesLastOOM(t *testing.T) {
 		t.Fatal("expected a problem")
 	}
 	text := got.Evidence()
-	for _, want := range []string{"CrashLoopBackOff", "OOMKilled", "default/api", "reinícios=7"} {
+	for _, want := range []string{"CrashLoopBackOff", "OOMKilled", "default/api", "restarts=7"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("evidence missing %q:\n%s", want, text)
 		}
 	}
-	if got.Signal() == "" || !strings.Contains(got.Signal(), "7 reinícios") {
+	if got.Signal() == "" || !strings.Contains(got.Signal(), "7 restarts") {
 		t.Fatalf("signal %q", got.Signal())
 	}
 }

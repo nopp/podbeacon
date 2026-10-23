@@ -91,7 +91,7 @@ func TestScanFallsBackWhenModelFails(t *testing.T) {
 	if err != nil || sent != 1 {
 		t.Fatalf("sent=%d err=%v", sent, err)
 	}
-	if !strings.Contains(text, "análise automática falhou") {
+	if !strings.Contains(text, "Automatic analysis failed") {
 		t.Fatalf("text %s", text)
 	}
 }
@@ -108,7 +108,7 @@ func TestScanPlainMessageWhenCreditsRunOut(t *testing.T) {
 		},
 		Diagnose: func(context.Context, string) (diagnose.Diagnosis, error) {
 			diagnoses++
-			return diagnose.Diagnosis{}, fmt.Errorf("chamada: %w", diagnose.ErrOutOfCredits)
+			return diagnose.Diagnosis{}, fmt.Errorf("call: %w", diagnose.ErrOutOfCredits)
 		},
 		Notify: func(_ context.Context, msg slack.Message) error {
 			texts = append(texts, msg.Preview)
@@ -125,7 +125,7 @@ func TestScanPlainMessageWhenCreditsRunOut(t *testing.T) {
 		t.Fatalf("diagnose calls=%d", diagnoses)
 	}
 	for _, text := range texts {
-		if strings.Contains(text, "Causa") || strings.Contains(text, "Checar") || strings.Contains(text, "Hipótese") || strings.Contains(text, "análise automática") {
+		if strings.Contains(text, "Likely cause") || strings.Contains(text, "Automatic analysis") {
 			t.Fatalf("suggestion in %s", text)
 		}
 	}
@@ -185,7 +185,7 @@ func TestScanSaysFixedWhenTheProblemClears(t *testing.T) {
 	if diagnoses != 1 || len(previews) != 2 {
 		t.Fatalf("diagnoses=%d previews=%#v", diagnoses, previews)
 	}
-	if !strings.Contains(previews[1], "Corrigido") || !strings.Contains(previews[1], "CrashLoopBackOff") || strings.Contains(previews[1], "Causa") {
+	if !strings.Contains(previews[1], "Resolved") || !strings.Contains(previews[1], "CrashLoopBackOff") || strings.Contains(previews[1], "Likely cause") {
 		t.Fatalf("close %s", previews[1])
 	}
 	step = 0
@@ -216,7 +216,7 @@ func TestScanSaysGoneWhenThePodLeaves(t *testing.T) {
 	if _, _, err := app.Scan(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(previews) != 2 || !strings.Contains(previews[1], "Não existe mais") || strings.Contains(previews[1], "Corrigido") {
+	if len(previews) != 2 || !strings.Contains(previews[1], "Deleted") || strings.Contains(previews[1], "Resolved") {
 		t.Fatalf("previews %#v", previews)
 	}
 	if diagnoses != 1 {
@@ -240,7 +240,7 @@ func TestScanSaysGoneWhenThePodIsDeleting(t *testing.T) {
 	if _, _, err := app.Scan(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(previews) != 2 || !strings.Contains(previews[1], "Não existe mais") {
+	if len(previews) != 2 || !strings.Contains(previews[1], "Deleted") {
 		t.Fatalf("previews %#v", previews)
 	}
 }
@@ -271,7 +271,7 @@ func TestScanStaysOpenWhileThePodIsStillUnhealthy(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, preview := range previews {
-		if strings.Contains(preview, "Corrigido") || strings.Contains(preview, "Não existe mais") {
+		if strings.Contains(preview, "Resolved") || strings.Contains(preview, "Deleted") {
 			t.Fatalf("closed while still unhealthy: %#v", previews)
 		}
 	}
@@ -282,7 +282,7 @@ func TestScanStaysOpenWhileThePodIsStillUnhealthy(t *testing.T) {
 	if _, _, err := app.Scan(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(previews) != 3 || !strings.Contains(previews[2], "Corrigido") || !strings.Contains(previews[2], "ImagePullBackOff") {
+	if len(previews) != 3 || !strings.Contains(previews[2], "Resolved") || !strings.Contains(previews[2], "ImagePullBackOff") {
 		t.Fatalf("previews %#v", previews)
 	}
 }
@@ -297,7 +297,7 @@ func TestScanRetriesAFailedClosingMessage(t *testing.T) {
 	fails := 0
 	app.Notify = func(_ context.Context, msg slack.Message) error {
 		previews = append(previews, msg.Preview)
-		if strings.Contains(msg.Preview, "Corrigido") && fails == 0 {
+		if strings.Contains(msg.Preview, "Resolved") && fails == 0 {
 			fails++
 			return errors.New("slack down")
 		}
@@ -315,7 +315,7 @@ func TestScanRetriesAFailedClosingMessage(t *testing.T) {
 	}
 	closed := 0
 	for _, preview := range previews {
-		if strings.Contains(preview, "Corrigido") {
+		if strings.Contains(preview, "Resolved") {
 			closed++
 		}
 	}
@@ -350,7 +350,7 @@ func TestScanSkipsClosingWhenPresenceFails(t *testing.T) {
 	if _, _, err := app.Scan(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(previews) != 2 || !strings.Contains(previews[1], "Corrigido") {
+	if len(previews) != 2 || !strings.Contains(previews[1], "Resolved") {
 		t.Fatalf("previews %#v", previews)
 	}
 }

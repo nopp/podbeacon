@@ -113,7 +113,7 @@ func (c Config) WithFlags(single, dry bool) Config {
 // Validate checks the fields required to run.
 func (c Config) Validate() error {
 	if c.XAIKey == "" {
-		return fmt.Errorf("faltam variáveis: XAI_API_KEY")
+		return fmt.Errorf("missing XAI_API_KEY")
 	}
 	if err := httpsURL("XAI_BASE_URL", c.XAIBaseURL); err != nil {
 		return err
@@ -125,20 +125,20 @@ func (c Config) Validate() error {
 	hasBot := c.SlackBotToken != "" || c.SlackChannel != ""
 	switch {
 	case hasWebhook && hasBot:
-		return fmt.Errorf("defina só SLACK_WEBHOOK_URL ou o par SLACK_BOT_TOKEN e SLACK_CHANNEL")
+		return fmt.Errorf("set only SLACK_WEBHOOK_URL, or both SLACK_BOT_TOKEN and SLACK_CHANNEL")
 	case hasWebhook:
 		return httpsURL("SLACK_WEBHOOK_URL", c.SlackWebhook)
 	case c.SlackBotToken != "" && c.SlackChannel != "":
 		return nil
 	default:
-		return fmt.Errorf("faltam variáveis: SLACK_WEBHOOK_URL ou SLACK_BOT_TOKEN e SLACK_CHANNEL")
+		return fmt.Errorf("missing SLACK_WEBHOOK_URL, or SLACK_BOT_TOKEN and SLACK_CHANNEL")
 	}
 }
 
 func httpsURL(name, raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return fmt.Errorf("%s precisa ser uma URL https", name)
+		return fmt.Errorf("%s must be an https URL", name)
 	}
 	return nil
 }
@@ -150,7 +150,7 @@ func durEnv(key string, def time.Duration) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(strings.TrimSpace(v))
 	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("%s deve ser uma duração positiva, como %s", key, def)
+		return 0, fmt.Errorf("%s must be a positive duration, such as %s", key, def)
 	}
 	return d, nil
 }
@@ -162,7 +162,7 @@ func intEnv(key string, def int) (int, error) {
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(v))
 	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("%s deve ser um inteiro positivo", key)
+		return 0, fmt.Errorf("%s must be a positive integer", key)
 	}
 	return n, nil
 }
@@ -178,7 +178,7 @@ func boolEnv(key string) (bool, error) {
 	case "0", "false", "no", "n", "nao", "não":
 		return false, nil
 	default:
-		return false, fmt.Errorf("%s deve ser true ou false", key)
+		return false, fmt.Errorf("%s must be true or false", key)
 	}
 }
 

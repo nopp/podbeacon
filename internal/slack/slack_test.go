@@ -19,11 +19,11 @@ func TestRender(t *testing.T) {
 		Phase:      "Running",
 		Node:       "node-a",
 		Restarts:   7,
-		Summary:    "O container morre por falta de memória.",
+		Summary:    "The container is running out of memory.",
 		Confidence: "media",
-		NextChecks: []string{"ver o limite de memória"},
+		NextChecks: []string{"check the memory limit"},
 	})
-	for _, want := range []string{"default/api", "CrashLoopBackOff", "Running", "node-a", "7", "média", "falta de memória", "limite de memória"} {
+	for _, want := range []string{"default/api", "CrashLoopBackOff", "Running", "node-a", "7 restarts", "medium", "running out of memory", "memory limit"} {
 		if !strings.Contains(msg.Preview, want) {
 			t.Fatalf("missing %q in %s", want, msg.Preview)
 		}
@@ -32,12 +32,12 @@ func TestRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"blocks"`, ":red_circle:", "Causa provável", "*CrashLoopBackOff no container api*", "`docker.io/library/nginx:9`", `"unfurl_links":false`} {
+	for _, want := range []string{`"blocks"`, "Likely cause", "CrashLoopBackOff no container api", "`nginx:9`", `"unfurl_links":false`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("missing %q in %s", want, raw)
 		}
 	}
-	for _, absent := range []string{`"attachments"`, `"header"`, "rpc error"} {
+	for _, absent := range []string{`"attachments"`, `"header"`, ":red_circle:", "rpc error", `"fields"`} {
 		if strings.Contains(string(raw), absent) {
 			t.Fatalf("card contains %q: %s", absent, raw)
 		}
@@ -79,12 +79,12 @@ func TestRenderPlainOmitsHypothesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, absent := range []string{"Causa", "Checar", "Hipótese"} {
+	for _, absent := range []string{"Likely cause", "Resolved", "Deleted"} {
 		if strings.Contains(string(raw), absent) {
 			t.Fatalf("plain card contains %q: %s", absent, raw)
 		}
 	}
-	if !strings.Contains(string(raw), ":large_yellow_circle:") || strings.Contains(string(raw), `"attachments"`) {
+	if strings.Contains(string(raw), `"attachments"`) || strings.Contains(string(raw), ":large_yellow_circle:") {
 		t.Fatalf("plain card: %s", raw)
 	}
 }
@@ -95,26 +95,26 @@ func TestRenderClosed(t *testing.T) {
 		Name:      "api",
 		Problem:   "CrashLoopBackOff no container api",
 	}, false)
-	if !strings.Contains(fixed.Preview, "Corrigido") || !strings.Contains(fixed.Preview, "CrashLoopBackOff") {
+	if !strings.Contains(fixed.Preview, "Resolved") || !strings.Contains(fixed.Preview, "CrashLoopBackOff") {
 		t.Fatalf("fixed %s", fixed.Preview)
 	}
 	raw, err := json.Marshal(fixed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), ":large_green_circle:") || strings.Contains(string(raw), "Causa") || strings.Contains(string(raw), "Hipótese") || strings.Contains(string(raw), `"attachments"`) {
+	if strings.Contains(string(raw), "Likely cause") || strings.Contains(string(raw), `"attachments"`) || !strings.Contains(string(raw), "Resolved") {
 		t.Fatalf("fixed json %s", raw)
 	}
 
 	gone := RenderClosed(Alert{Namespace: "payments", Name: "api", Problem: "CrashLoopBackOff no container api"}, true)
-	if !strings.Contains(gone.Preview, "Não existe mais") || strings.Contains(gone.Preview, "Corrigido") {
+	if !strings.Contains(gone.Preview, "Deleted") || strings.Contains(gone.Preview, "Resolved") {
 		t.Fatalf("gone %s", gone.Preview)
 	}
 	raw, err = json.Marshal(gone)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), ":white_circle:") {
+	if !strings.Contains(string(raw), "Deleted") {
 		t.Fatalf("gone mark %s", raw)
 	}
 }
@@ -130,10 +130,10 @@ func TestWebhook(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := New(srv.URL, "", "", srv.Client())
-	if err := c.Send(context.Background(), Message{Text: "olá"}); err != nil {
+	if err := c.Send(context.Background(), Message{Text: "hello"}); err != nil {
 		t.Fatal(err)
 	}
-	if got.Text != "olá" || got.Channel != "" {
+	if got.Text != "hello" || got.Channel != "" {
 		t.Fatalf("%+v", got)
 	}
 }
@@ -156,7 +156,7 @@ func TestBotRejectsSlackError(t *testing.T) {
 	defer srv.Close()
 	c := New("", "xoxb-test", "C123", srv.Client())
 	c.APIURL = srv.URL
-	err := c.Send(context.Background(), Message{Text: "olá"})
+	err := c.Send(context.Background(), Message{Text: "hello"})
 	if err == nil || !strings.Contains(err.Error(), "not_in_channel") {
 		t.Fatalf("err %v", err)
 	}

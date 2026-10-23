@@ -57,9 +57,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		case err != nil && a.SinglePass:
 			return err
 		case err != nil:
-			a.logger().Error("varredura", "err", err)
+			a.logger().Error("scan", "err", err)
 		default:
-			a.logger().Info("varredura concluída", "problemas", found, "alertas", n)
+			a.logger().Info("scan finished", "problems", found, "alerts", n)
 		}
 		if a.SinglePass {
 			return nil
@@ -104,7 +104,7 @@ func (a *Agent) Scan(ctx context.Context) (sent int, found int, err error) {
 			continue
 		}
 		if attempts >= a.max() {
-			a.logger().Info("limite de alertas da varredura", "max", a.max())
+			a.logger().Info("alert cap for this scan", "max", a.max())
 			break
 		}
 		attempts++
@@ -115,7 +115,7 @@ func (a *Agent) Scan(ctx context.Context) (sent int, found int, err error) {
 				if ctx.Err() != nil {
 					return sent, len(items), ctx.Err()
 				}
-				a.logger().Warn("detalhes do pod", "pod", item.Key(), "err", enrichErr)
+				a.logger().Warn("pod details", "pod", item.Key(), "err", enrichErr)
 			} else {
 				report = enriched
 			}
@@ -131,7 +131,7 @@ func (a *Agent) Scan(ctx context.Context) (sent int, found int, err error) {
 		a.dedup().Mark(report.Fingerprint(), now)
 		a.noteOpen(report)
 		sent++
-		a.logger().Info("alerta enviado", "pod", report.Key(), "confiança", confidence)
+		a.logger().Info("alert sent", "pod", report.Key(), "confidence", confidence)
 	}
 	return sent, len(items), nil
 }
@@ -151,7 +151,7 @@ func (a *Agent) closeOpen(ctx context.Context, problems []k8s.Report) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		a.logger().Warn("presença dos pods", "err", err)
+		a.logger().Warn("pod presence", "err", err)
 		return nil
 	}
 	still := make(map[string]struct{}, len(problems))
@@ -186,11 +186,11 @@ func (a *Agent) closeOpen(ctx context.Context, problems []k8s.Report) error {
 			a.dedup().Forget(fp)
 		}
 		delete(a.open, key)
-		estado := "corrigido"
+		state := "resolved"
 		if gone {
-			estado = "não existe mais"
+			state = "deleted"
 		}
-		a.logger().Info("problema encerrado", "pod", key, "estado", estado)
+		a.logger().Info("problem closed", "pod", key, "state", state)
 	}
 	return nil
 }
@@ -223,7 +223,7 @@ func (a *Agent) noteOpen(report k8s.Report) {
 func (a *Agent) message(ctx context.Context, report k8s.Report, skipModel *bool) (slack.Message, string, error) {
 	plain := slack.Render(scrub(card(report, diagnose.Diagnosis{}, true)))
 	if *skipModel {
-		return plain, "sem créditos", nil
+		return plain, "no credits", nil
 	}
 	evidence := redact.String(report.Evidence())
 	diag, err := a.Diagnose(ctx, evidence)
@@ -233,10 +233,10 @@ func (a *Agent) message(ctx context.Context, report k8s.Report, skipModel *bool)
 		}
 		if errors.Is(err, diagnose.ErrOutOfCredits) {
 			*skipModel = true
-			a.logger().Error("créditos da IA esgotados", "pod", report.Key(), "err", err)
-			return plain, "sem créditos", nil
+			a.logger().Error("AI credits exhausted", "pod", report.Key(), "err", err)
+			return plain, "no credits", nil
 		}
-		a.logger().Error("diagnóstico", "pod", report.Key(), "err", err)
+		a.logger().Error("diagnosis", "pod", report.Key(), "err", err)
 		diag = diagnose.Fallback(report.Signal())
 	}
 	return slack.Render(scrub(card(report, diag, false))), diag.Confidence, nil

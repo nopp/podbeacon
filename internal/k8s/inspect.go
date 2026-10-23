@@ -154,12 +154,13 @@ func terminatedHit(c corev1.ContainerStatus, init bool) (hit, bool) {
 
 func newHit(sev int, reason, container string, init bool, message string, exit int32, withExit bool) hit {
 	kind := "c"
-	where := "container"
 	if init {
 		kind = "init"
-		where = "init container"
 	}
-	text := fmt.Sprintf("%s no %s %s", reason, where, container)
+	text := fmt.Sprintf("%s · %s", reason, container)
+	if init {
+		text = fmt.Sprintf("%s · init %s", reason, container)
+	}
 	if withExit {
 		text += fmt.Sprintf(" (exit %d)", exit)
 	}
@@ -180,7 +181,7 @@ func podHits(pod *corev1.Pod, age, grace time.Duration, haveContainer bool) []hi
 	case corev1.PodFailed:
 		hits = append(hits, failedHit(pod))
 	case corev1.PodUnknown:
-		hits = append(hits, hit{severity: 75, code: "pod:Unknown", text: "Fase Unknown"})
+		hits = append(hits, hit{severity: 75, code: "pod:Unknown", text: "Unknown"})
 	}
 	unschedMsg, unsched := unschedulableMessage(pod)
 	if unsched && age >= grace {
@@ -194,14 +195,14 @@ func podHits(pod *corev1.Pod, age, grace time.Duration, haveContainer bool) []hi
 		hits = append(hits, hit{
 			severity: 35,
 			code:     "pod:Pending",
-			text:     "Pending há " + humanDur(age),
+			text:     "Pending for " + humanDur(age),
 		})
 	}
 	if pod.Status.Phase == corev1.PodRunning && !haveContainer && age >= grace && !podReady(pod) {
 		hits = append(hits, hit{
 			severity: 45,
 			code:     "pod:NotReady",
-			text:     "NotReady há " + humanDur(age),
+			text:     "NotReady for " + humanDur(age),
 		})
 	}
 	return hits
@@ -209,10 +210,10 @@ func podHits(pod *corev1.Pod, age, grace time.Duration, haveContainer bool) []hi
 
 func failedHit(pod *corev1.Pod) hit {
 	code := "pod:Failed"
-	text := "Fase Failed"
+	text := "Failed"
 	if pod.Status.Reason != "" {
 		code += ":" + pod.Status.Reason
-		text = fmt.Sprintf("Fase Failed (%s)", pod.Status.Reason)
+		text = fmt.Sprintf("Failed (%s)", pod.Status.Reason)
 	}
 	if pod.Status.Message != "" {
 		text += ": " + clip(oneLine(pod.Status.Message), 180)

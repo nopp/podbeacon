@@ -55,79 +55,55 @@ type TextObject struct {
 	Emoji bool   `json:"emoji,omitempty"`
 }
 
-// Render builds a short card. The raw API error stays out of the channel.
-// A plain card stops after the pod facts.
+// Render builds one short note. Facts sit on two lines under the pod name.
+// A plain note stops there.
 func Render(a Alert) Message {
 	title := clip(oneLine(podTitle(a.Namespace, a.Name)), 140)
 	if title == "" {
 		title = "pod"
 	}
 	problem := clip(shortProblem(a.Problem), 120)
-	image := clip(oneLine(a.Image), 180)
+	image := shortImage(a.Image)
 	summary := clip(oneLine(a.Summary), 220)
 	checks := cleanList(a.NextChecks, 3, 120)
-	phase := oneLine(a.Phase)
-	node := oneLine(a.Node)
+	meta := metaLine(oneLine(a.Phase), oneLine(a.Node), a.Restarts)
 
-	mark := ":red_circle:"
-	if a.Plain {
-		mark = ":large_yellow_circle:"
-	}
 	var head strings.Builder
-	fmt.Fprintf(&head, "%s *%s*", mark, escapeMrkdwn(title))
-	if problem != "" {
-		fmt.Fprintf(&head, "\n*%s*", escapeMrkdwn(problem))
+	fmt.Fprintf(&head, "*%s*", escapeMrkdwn(title))
+	if line := problemLine(problem, image); line != "" {
+		fmt.Fprintf(&head, "\n%s", line)
 	}
-	if image != "" {
-		fmt.Fprintf(&head, "\n%s", codeSpan(image))
+	if meta != "" {
+		fmt.Fprintf(&head, "\n%s", escapeMrkdwn(meta))
 	}
 	blocks := []Block{{Type: "section", Text: mrkdwn(head.String())}}
 
-	var fields []TextObject
-	if phase != "" {
-		fields = append(fields, field("Fase", phase))
-	}
-	if node != "" {
-		fields = append(fields, field("Node", node))
-	}
-	if a.Restarts > 0 {
-		fields = append(fields, field("Reinícios", fmt.Sprintf("%d", a.Restarts)))
-	}
-	if len(fields) > 0 {
-		blocks = append(blocks, Block{Type: "section", Fields: fields})
-	}
-
 	var body strings.Builder
 	fmt.Fprintf(&body, "*%s*\n", title)
-	writePreview(&body, "Problema", problem)
-	writePreview(&body, "Imagem", image)
-	writePreview(&body, "Fase", phase)
-	writePreview(&body, "Node", node)
-	if a.Restarts > 0 {
-		writePreview(&body, "Reinícios", fmt.Sprintf("%d", a.Restarts))
+	if problem != "" {
+		fmt.Fprintf(&body, "%s\n", problem)
+	}
+	if image != "" {
+		fmt.Fprintf(&body, "%s\n", image)
+	}
+	if meta != "" {
+		fmt.Fprintf(&body, "%s\n", meta)
 	}
 
 	if !a.Plain {
 		if summary == "" {
-			summary = "Sem uma causa clara a partir dos dados coletados."
+			summary = "No clear cause from the data collected."
 		}
 		label := confidenceLabel(a.Confidence)
 		var cause strings.Builder
-		fmt.Fprintf(&cause, "*Causa provável · %s*\n%s", label, escapeMrkdwn(summary))
-		if len(checks) > 0 {
-			cause.WriteString("\n")
-			for _, item := range checks {
-				fmt.Fprintf(&cause, "\n• %s", escapeMrkdwn(item))
-			}
+		fmt.Fprintf(&cause, "*Likely cause · %s*\n%s", label, escapeMrkdwn(summary))
+		for _, item := range checks {
+			fmt.Fprintf(&cause, "\n• %s", escapeMrkdwn(item))
 		}
-		cause.WriteString("\n_Hipótese do modelo. Confira antes de agir._")
 		blocks = append(blocks, Block{Type: "section", Text: mrkdwn(cause.String())})
-		fmt.Fprintf(&body, "*Causa provável (%s):* %s\n", label, summary)
-		if len(checks) > 0 {
-			body.WriteString("*Checar:*\n")
-			for _, item := range checks {
-				fmt.Fprintf(&body, "• %s\n", item)
-			}
+		fmt.Fprintf(&body, "*Likely cause (%s):* %s\n", label, summary)
+		for _, item := range checks {
+			fmt.Fprintf(&body, "• %s\n", item)
 		}
 	}
 
@@ -146,27 +122,60 @@ func RenderClosed(a Alert, gone bool) Message {
 		title = "pod"
 	}
 	problem := clip(shortProblem(a.Problem), 120)
-	status := "Corrigido"
-	detail := "O problema não está mais neste pod."
-	mark := ":large_green_circle:"
-	line := title + " — corrigido"
+	status := "Resolved"
+	line := title + " — resolved"
 	if gone {
-		status = "Não existe mais"
-		detail = "O pod não está mais no cluster."
-		mark = ":white_circle:"
-		line = title + " — não existe mais"
+		status = "Deleted"
+		line = title + " — deleted"
 	}
-
-	var head strings.Builder
-	fmt.Fprintf(&head, "%s *%s*\n*%s*\n%s", mark, escapeMrkdwn(title), status, detail)
+	text := status
 	if problem != "" {
-		fmt.Fprintf(&head, "\n%s", escapeMrkdwn(problem))
+		text += " · " + escapeMrkdwn(problem)
 	}
-	var body strings.Builder
-	fmt.Fprintf(&body, "*%s*\n", title)
-	writePreview(&body, "Estado", status)
-	writePreview(&body, "Problema", problem)
-	return message(line, body.String(), []Block{{Type: "section", Text: mrkdwn(head.String())}})
+	body := fmt.Sprintf("*%s*\n%s", title, status)
+	if problem != "" {
+		body += " · " + problem
+	}
+	head := fmt.Sprintf("*%s*\n%s", escapeMrkdwn(title), text)
+	return message(line, body, []Block{{Type: "section", Text: mrkdwn(head)}})
+}
+
+func problemLine(problem, image string) string {
+	switch {
+	case problem != "" && image != "":
+		return escapeMrkdwn(problem) + " · " + codeSpan(image)
+	case problem != "":
+		return escapeMrkdwn(problem)
+	case image != "":
+		return codeSpan(image)
+	default:
+		return ""
+	}
+}
+
+func metaLine(phase, node string, restarts int32) string {
+	var parts []string
+	if phase != "" {
+		parts = append(parts, phase)
+	}
+	if node != "" {
+		parts = append(parts, node)
+	}
+	switch {
+	case restarts == 1:
+		parts = append(parts, "1 restart")
+	case restarts > 1:
+		parts = append(parts, fmt.Sprintf("%d restarts", restarts))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func shortImage(s string) string {
+	s = oneLine(s)
+	if i := strings.LastIndex(s, "/"); i >= 0 && i < len(s)-1 {
+		s = s[i+1:]
+	}
+	return clip(s, 80)
 }
 
 func message(line, preview string, blocks []Block) Message {
@@ -207,10 +216,6 @@ func podTitle(namespace, name string) string {
 	}
 }
 
-func field(label, value string) TextObject {
-	return TextObject{Type: "mrkdwn", Text: fmt.Sprintf("*%s*\n%s", label, escapeMrkdwn(value))}
-}
-
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
@@ -220,13 +225,6 @@ func escapeMrkdwn(s string) string {
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	return s
-}
-
-func writePreview(b *strings.Builder, label, value string) {
-	if value == "" {
-		return
-	}
-	fmt.Fprintf(b, "*%s:* %s\n", label, value)
 }
 
 func cleanList(items []string, n, width int) []string {
@@ -246,12 +244,12 @@ func cleanList(items []string, n, width int) []string {
 
 func confidenceLabel(c string) string {
 	switch c {
-	case "alta":
-		return "alta"
-	case "media":
-		return "média"
+	case "alta", "high":
+		return "high"
+	case "media", "medium":
+		return "medium"
 	default:
-		return "baixa"
+		return "low"
 	}
 }
 
@@ -298,15 +296,15 @@ func (c *Client) Send(ctx context.Context, msg Message) error {
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("enviar ao slack: %w", err)
+		return fmt.Errorf("send to slack: %w", err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return fmt.Errorf("ler resposta do slack: %w", err)
+		return fmt.Errorf("read the slack response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("slack respondeu %s: %s", resp.Status, clip(string(respBody), 200))
+		return fmt.Errorf("slack returned %s: %s", resp.Status, clip(string(respBody), 200))
 	}
 	if token == "" {
 		return nil
@@ -316,11 +314,11 @@ func (c *Client) Send(ctx context.Context, msg Message) error {
 		Error string `json:"error"`
 	}
 	if err := json.Unmarshal(respBody, &decoded); err != nil {
-		return fmt.Errorf("decodificar resposta do slack: %w", err)
+		return fmt.Errorf("decode the slack response: %w", err)
 	}
 	if !decoded.OK {
 		if decoded.Error == "" {
-			decoded.Error = "resposta sem ok"
+			decoded.Error = "response without ok"
 		}
 		return fmt.Errorf("slack: %s", decoded.Error)
 	}

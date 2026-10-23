@@ -29,7 +29,7 @@ func TestDiagnoseParsesOutputText(t *testing.T) {
 		  "output": [
 		    {"type": "reasoning", "summary": []},
 		    {"type": "message", "role": "assistant", "content": [
-		      {"type": "output_text", "text": "{\"summary\":\"O container morre por OOM e volta em CrashLoop.\",\"confidence\":\"alta\",\"evidence\":[\"exit 137\"],\"next_checks\":[\"comparar limite e uso de memória\"]}"}
+		      {"type": "output_text", "text": "{\"summary\":\"The container is OOM and returns to CrashLoop.\",\"confidence\":\"alta\",\"evidence\":[\"exit 137\"],\"next_checks\":[\"compare the memory limit with usage\"]}"}
 		    ]}
 		  ]
 		}`))
@@ -41,7 +41,7 @@ func TestDiagnoseParsesOutputText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if diag.Summary == "" || diag.Confidence != "alta" || len(diag.Evidence) != 1 || len(diag.NextChecks) != 1 {
+	if diag.Summary == "" || diag.Confidence != "high" || len(diag.Evidence) != 1 || len(diag.NextChecks) != 1 {
 		t.Fatalf("%+v", diag)
 	}
 	if got["model"] != "grok-4.7" {
@@ -100,7 +100,7 @@ func TestDiagnoseHTTPError(t *testing.T) {
 
 func TestNormalizeUnknownConfidence(t *testing.T) {
 	got := normalize(Diagnosis{Summary: "x", Confidence: "altissima", Evidence: []string{"  a  ", ""}})
-	if got.Confidence != "baixa" || len(got.Evidence) != 1 || got.Evidence[0] != "a" {
+	if got.Confidence != "low" || len(got.Evidence) != 1 || got.Evidence[0] != "a" {
 		t.Fatalf("%+v", got)
 	}
 }

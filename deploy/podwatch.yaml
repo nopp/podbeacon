@@ -34,8 +34,8 @@ subjects:
     name: podwatch
     namespace: podwatch
 ---
-# Uma réplica só. O silêncio entre alertas fica na memória do processo;
-# duas réplicas mandariam a mesma mensagem.
+# One replica. Alert silence lives in process memory;
+# two replicas would post the same message.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -65,7 +65,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: podwatch
-          image: ghcr.io/nopp/k8s-agent-ai:1.0.2
+          image: ghcr.io/nopp/k8s-agent-ai:1.0.3
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
