@@ -65,7 +65,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: podwatch
-          image: ghcr.io/nopp/k8s-agent-ai:1.0.3
+          image: ghcr.io/nopp/k8s-agent-ai:1.0.4
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

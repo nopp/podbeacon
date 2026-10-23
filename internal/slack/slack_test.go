@@ -32,12 +32,12 @@ func TestRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"blocks"`, "Likely cause", "CrashLoopBackOff no container api", "`nginx:9`", `"unfurl_links":false`} {
+	for _, want := range []string{`"attachments"`, `"blocks"`, colorProblem, "Likely cause", "CrashLoopBackOff no container api", "`nginx:9`", `"unfurl_links":false`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("missing %q in %s", want, raw)
 		}
 	}
-	for _, absent := range []string{`"attachments"`, `"header"`, ":red_circle:", "rpc error", `"fields"`} {
+	for _, absent := range []string{`"header"`, ":red_circle:", "rpc error", `"fields"`, colorResolved, colorDeleted} {
 		if strings.Contains(string(raw), absent) {
 			t.Fatalf("card contains %q: %s", absent, raw)
 		}
@@ -84,7 +84,7 @@ func TestRenderPlainOmitsHypothesis(t *testing.T) {
 			t.Fatalf("plain card contains %q: %s", absent, raw)
 		}
 	}
-	if strings.Contains(string(raw), `"attachments"`) || strings.Contains(string(raw), ":large_yellow_circle:") {
+	if !strings.Contains(string(raw), colorProblem) || strings.Contains(string(raw), colorResolved) {
 		t.Fatalf("plain card: %s", raw)
 	}
 }
@@ -102,7 +102,7 @@ func TestRenderClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "Likely cause") || strings.Contains(string(raw), `"attachments"`) || !strings.Contains(string(raw), "Resolved") {
+	if strings.Contains(string(raw), "Likely cause") || !strings.Contains(string(raw), colorResolved) || strings.Contains(string(raw), colorProblem) {
 		t.Fatalf("fixed json %s", raw)
 	}
 
@@ -114,7 +114,7 @@ func TestRenderClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "Deleted") {
+	if !strings.Contains(string(raw), colorDeleted) || strings.Contains(string(raw), colorResolved) {
 		t.Fatalf("gone mark %s", raw)
 	}
 }

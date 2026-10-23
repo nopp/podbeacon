@@ -28,17 +28,30 @@ type Alert struct {
 	Plain      bool
 }
 
-// Message is one Slack post. Text is only the notification fallback: the
-// channel shows Blocks. Attachments are avoided because Slack prints Text
-// above them and collapses the card behind "Show more".
+// Message is one Slack post. The channel shows a short colored card.
+// Text is the notification line. Red is a problem, green is resolved,
+// gray means the pod is gone.
 type Message struct {
-	Channel     string  `json:"channel,omitempty"`
-	Text        string  `json:"text"`
-	Blocks      []Block `json:"blocks,omitempty"`
-	UnfurlLinks bool    `json:"unfurl_links"`
-	UnfurlMedia bool    `json:"unfurl_media"`
-	Preview     string  `json:"-"`
+	Channel     string       `json:"channel,omitempty"`
+	Text        string       `json:"text"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	UnfurlLinks bool         `json:"unfurl_links"`
+	UnfurlMedia bool         `json:"unfurl_media"`
+	Preview     string       `json:"-"`
 }
+
+// Attachment is the colored card. The bar is the state: the text inside stays short.
+type Attachment struct {
+	Color    string  `json:"color,omitempty"`
+	Fallback string  `json:"fallback,omitempty"`
+	Blocks   []Block `json:"blocks,omitempty"`
+}
+
+const (
+	colorProblem  = "#E01E5A"
+	colorResolved = "#2EB67D"
+	colorDeleted  = "#616061"
+)
 
 // Block is one Block Kit element. Unused fields stay out of the JSON.
 type Block struct {
@@ -111,7 +124,7 @@ func Render(a Alert) Message {
 	if problem != "" {
 		line += " — " + problem
 	}
-	return message(line, body.String(), blocks)
+	return message(line, body.String(), colorProblem, blocks)
 }
 
 // RenderClosed builds the card sent when an alerted problem is over.
@@ -124,9 +137,11 @@ func RenderClosed(a Alert, gone bool) Message {
 	problem := clip(shortProblem(a.Problem), 120)
 	status := "Resolved"
 	line := title + " — resolved"
+	color := colorResolved
 	if gone {
 		status = "Deleted"
 		line = title + " — deleted"
+		color = colorDeleted
 	}
 	text := status
 	if problem != "" {
@@ -137,7 +152,7 @@ func RenderClosed(a Alert, gone bool) Message {
 		body += " · " + problem
 	}
 	head := fmt.Sprintf("*%s*\n%s", escapeMrkdwn(title), text)
-	return message(line, body, []Block{{Type: "section", Text: mrkdwn(head)}})
+	return message(line, body, color, []Block{{Type: "section", Text: mrkdwn(head)}})
 }
 
 func problemLine(problem, image string) string {
@@ -178,11 +193,16 @@ func shortImage(s string) string {
 	return clip(s, 80)
 }
 
-func message(line, preview string, blocks []Block) Message {
+func message(line, preview, color string, blocks []Block) Message {
+	line = clip(line, 200)
 	return Message{
-		Text:        clip(line, 200),
-		Preview:     strings.TrimRight(preview, "\n"),
-		Blocks:      blocks,
+		Text:    line,
+		Preview: strings.TrimRight(preview, "\n"),
+		Attachments: []Attachment{{
+			Color:    color,
+			Fallback: line,
+			Blocks:   blocks,
+		}},
 		UnfurlLinks: false,
 		UnfurlMedia: false,
 	}
