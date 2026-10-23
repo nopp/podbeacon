@@ -1,101 +1,110 @@
 # podwatch
 
-Agente em Go que procura Pods com problema, pede uma causa provável ao Grok e publica a hipótese num canal do Slack.
+A Go agent that finds unhealthy Pods, asks Grok for a likely cause, and posts the hypothesis to a Slack channel.
 
-A varredura fala só com a API do Kubernetes. A API do modelo entra apenas quando existe um Pod novo para alertar.
+The scan talks only to the Kubernetes API. The model API is called only when a Pod is new enough to alert on.
 
-## Como funciona
+## How it works
 
-1. A cada `POLL_INTERVAL` (padrão 1 minuto) o processo lista os Pods. Fora do cluster ele usa o kubeconfig padrão (`KUBECONFIG` ou `~/.kube/config`). Dentro do cluster usa a ServiceAccount.
-2. A classificação é local. Pod saudável, Pod `Succeeded` e Pod em exclusão não seguem adiante.
-3. Para cada problema que ainda não foi alertado, o agente lê os eventos desse Pod e um trecho de log dos containers afetados.
-4. Esse relato vai numa única chamada a `POST /v1/responses` do modelo (`XAI_MODEL`, padrão `grok-4.7`). Não há ferramentas nem continuação da conversa. O pedido manda `store: false`.
-5. A resposta vira uma mensagem no Slack: sinal, causa provável, indícios e o que checar. O texto deixa claro que é uma hipótese.
+1. Every `POLL_INTERVAL` (default 1 minute) the process lists Pods. Outside a cluster it uses the default kubeconfig (`KUBECONFIG` or `~/.kube/config`). Inside a cluster it uses the ServiceAccount.
+2. Classification is local. A healthy Pod, a `Succeeded` Pod, and a Pod that is being deleted stop here.
+3. For each problem that has not been alerted yet, the agent reads that Pod's events and a log tail from the affected containers.
+4. That report goes out in a single `POST /v1/responses` call (`XAI_MODEL`, default `grok-4.7`). There are no tools and no conversation continuation. The request sets `store: false`.
+5. The answer becomes a Slack message: signal, likely cause, evidence, and what to check. The text says the cause is a hypothesis.
 
-Se o modelo falha, o Slack ainda recebe o sinal do Pod, com a nota de que a análise automática não veio. Se o Slack falha, o Pod não entra no silêncio e a próxima varredura tenta de novo.
+Silence is kept in the process memory. Two replicas would send the same message. The Deployment in `deploy/podwatch.yaml` uses one replica and the `Recreate` strategy.
 
-O silêncio fica na memória do processo. Duas réplicas mandariam a mesma mensagem. O Deployment em `deploy/podwatch.yaml` usa uma réplica e estratégia `Recreate`.
+### Credit fallback
 
-### O que conta como problema
+When the xAI account is out of prepaid credits, or the invoiced spending limit has been reached, podwatch still posts to Slack. The message contains only the namespace, the pod name, and the problem. It does not include a likely cause, evidence, checks, or any other suggestion.
 
-Alerta na hora:
+```
+*Pod com problema:* `default/api`
+*Sinal:* CrashLoopBackOff no container api
+```
 
-- espera com `CrashLoopBackOff`, `ImagePullBackOff`, `ErrImagePull`, `CreateContainerConfigError`, `CreateContainerError`, `InvalidImageName`, `RunContainerError` ou `DeadlineExceeded`
-- container terminado com `OOMKilled`, `Error`, `ContainerCannotRun`, `StartError` ou outro exit diferente de zero
-- fase `Failed` ou `Unknown`
+The rest of that scan does not call the model. The next scan tries again, so adding credits resumes diagnosis without a process restart. Any other model failure still posts the problem with a note that the automatic analysis did not come back. If Slack itself fails, the pod is not silenced and the next scan retries.
 
-`ErrImagePull` e `ImagePullBackOff` dividem a mesma chave de silêncio.
+### What counts as a problem
 
-Depois de `STARTUP_GRACE` (padrão 2 minutos):
+Alerted immediately:
 
-- `ContainerCreating`, `PodInitializing` ou `CreateContainer`
-- `Pending` e `Unschedulable`
-- `Running` que continua `NotReady`
+- waiting on `CrashLoopBackOff`, `ImagePullBackOff`, `ErrImagePull`, `CreateContainerConfigError`, `CreateContainerError`, `InvalidImageName`, `RunContainerError`, or `DeadlineExceeded`
+- a container terminated with `OOMKilled`, `Error`, `ContainerCannotRun`, `StartError`, or any other non-zero exit
+- phase `Failed` or `Unknown`
 
-Um init container que ainda está rodando não gera `Pending`, para uma migration longa não disparar alerta. Um container `Ready`, mesmo com um OOM antigo no estado anterior, também não alerta. Se ele está em `CrashLoop` e o estado anterior foi `OOMKilled`, os dois entram no relato.
+`ErrImagePull` and `ImagePullBackOff` share the same silence key.
 
-### O que vai para o modelo
+After `STARTUP_GRACE` (default 2 minutes):
 
-Status do Pod, dono, labels `app` e `app.kubernetes.io/*`, condições, até 12 eventos e logs dos containers com problema (no máximo dois). Cada leitura pede `LOG_TAIL_LINES` linhas e no máximo `MAX_LOG_BYTES` bytes. O relato inteiro é cortado em 24 mil caracteres.
+- `ContainerCreating`, `PodInitializing`, or `CreateContainer`
+- `Pending` and `Unschedulable`
+- `Running` that is still `NotReady`
 
-Antes do envio, o texto passa por um mascaramento de senha, Bearer, JWT, chave `AKIA` e token `xoxb-` / `xoxp-`. O nome de um Secret ausente, como `secret "db" not found`, permanece.
+An init container that is still running does not raise `Pending`, so a long migration does not alert. A `Ready` container does not alert on an old OOM in its previous state. If it is in `CrashLoop` and the previous state was `OOMKilled`, both go into the report.
 
-A chamada de modelo só acontece se o motivo ainda está fora de `ALERT_COOLDOWN` e cabe em `MAX_ALERTS_PER_SCAN`. Os mais graves vão primeiro. Com o cluster quieto, o gasto de token é zero.
+### What is sent to the model
 
-## Variáveis de ambiente
+Pod status, owner, `app` and `app.kubernetes.io/*` labels, conditions, up to 12 events, and logs from the problem containers (at most two). Each read asks for `LOG_TAIL_LINES` lines and at most `MAX_LOG_BYTES` bytes. The whole report is cut at 24,000 characters.
 
-Durações usam o formato do Go: `30s`, `1m`, `2h`. Inteiros precisam ser positivos. Booleanos aceitam `1`, `true`, `yes`, `y`, `sim` e `0`, `false`, `no`, `n`, `nao`, `não`.
+Before the call, passwords, Bearer tokens, JWTs, `AKIA` keys, and `xoxb-` / `xoxp-` tokens are masked. The name of a missing Secret, such as `secret "db" not found`, is kept.
 
-| Variável | Obrigatória | Padrão | Função |
+The model is called only when the reason is outside `ALERT_COOLDOWN` and the alert fits in `MAX_ALERTS_PER_SCAN`. The most severe problems go first. A quiet cluster spends zero tokens.
+
+## Environment variables
+
+Durations use Go's format: `30s`, `1m`, `2h`. Integers must be positive. Booleans accept `1`, `true`, `yes`, `y`, `sim` and `0`, `false`, `no`, `n`, `nao`, `não`.
+
+| Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `XAI_API_KEY` | sim | | Chave da API. Também é exigida em `--dry-run`, porque o modelo continua sendo chamado. Crie em [console.x.ai](https://console.x.ai/team/default/api-keys). |
-| `XAI_MODEL` | não | `grok-4.7` | Modelo da chamada. |
-| `XAI_BASE_URL` | não | `https://api.x.ai/v1` | URL base. Precisa ser `https`. |
-| `XAI_TIMEOUT` | não | `180s` | Tempo máximo de uma chamada ao modelo. |
-| `SLACK_WEBHOOK_URL` | um dos modos | | Incoming Webhook. Precisa ser `https`. |
-| `SLACK_BOT_TOKEN` | um dos modos | | Token `xoxb-…` para `chat.postMessage`. O bot precisa estar no canal. |
-| `SLACK_CHANNEL` | junto com o token | | ID do canal, por exemplo `C0123456789`. |
-| `NAMESPACES` | não | todos | Lista separada por vírgula. Vazio lista o cluster inteiro, menos os excluídos. |
-| `EXCLUDE_NAMESPACES` | não | `kube-system,kube-public,kube-node-lease` | Namespaces ignorados. Se a variável existir e estiver vazia, nenhum namespace é excluído. |
-| `POLL_INTERVAL` | não | `1m` | Intervalo entre varreduras. |
-| `ALERT_COOLDOWN` | não | `30m` | Silêncio do mesmo Pod com o mesmo motivo. |
-| `STARTUP_GRACE` | não | `2m` | Espera antes de alertar Pending, criação lenta, NotReady e Unschedulable. |
-| `LOG_TAIL_LINES` | não | `80` | Linhas de log pedidas por container. |
-| `MAX_LOG_BYTES` | não | `12000` | Bytes máximos de cada leitura de log. |
-| `MAX_ALERTS_PER_SCAN` | não | `8` | Alertas novos por varredura. |
-| `DRY_RUN` | não | `false` | Imprime a mensagem no stdout e não chama o Slack. Nesse modo as variáveis do Slack podem ficar vazias. |
-| `ONCE` | não | `false` | Faz uma varredura e encerra. |
+| `XAI_API_KEY` | yes | | API key. Also required for `--dry-run`, because the model is still called. Create one at [console.x.ai](https://console.x.ai/team/default/api-keys). |
+| `XAI_MODEL` | no | `grok-4.7` | Model for the call. |
+| `XAI_BASE_URL` | no | `https://api.x.ai/v1` | Base URL. Must be `https`. |
+| `XAI_TIMEOUT` | no | `180s` | Time limit for one model call. |
+| `SLACK_WEBHOOK_URL` | one Slack mode | | Incoming webhook. Must be `https`. |
+| `SLACK_BOT_TOKEN` | one Slack mode | | `xoxb-…` token for `chat.postMessage`. The bot must be in the channel. |
+| `SLACK_CHANNEL` | with the bot token | | Channel ID, for example `C0123456789`. |
+| `NAMESPACES` | no | all | Comma-separated list. Empty lists the whole cluster, minus the excluded namespaces. |
+| `EXCLUDE_NAMESPACES` | no | `kube-system,kube-public,kube-node-lease` | Namespaces to skip. If the variable is set and empty, nothing is excluded. |
+| `POLL_INTERVAL` | no | `1m` | Time between scans. |
+| `ALERT_COOLDOWN` | no | `30m` | Silence for the same Pod and the same reason. |
+| `STARTUP_GRACE` | no | `2m` | Wait before alerting on Pending, slow container creation, NotReady, and Unschedulable. |
+| `LOG_TAIL_LINES` | no | `80` | Log lines requested per container. |
+| `MAX_LOG_BYTES` | no | `12000` | Maximum bytes for each log read. |
+| `MAX_ALERTS_PER_SCAN` | no | `8` | New alerts per scan. |
+| `DRY_RUN` | no | `false` | Prints the message to stdout and does not call Slack. Slack variables may be empty in this mode. |
+| `ONCE` | no | `false` | Runs one scan and exits. |
 
-Defina só um destino de Slack: o webhook, ou o par token e canal. Os dois juntos fazem o processo recusar a configuração. Em `DRY_RUN` ou `--dry-run` o destino pode faltar.
+Set only one Slack destination: the webhook, or the token and channel pair. Setting both makes the process refuse the configuration. `DRY_RUN` or `--dry-run` may omit the destination.
 
-As flags `--once` e `--dry-run` ligam o mesmo comportamento que `ONCE` e `DRY_RUN`. Elas não desligam o valor que veio do ambiente.
+The `--once` and `--dry-run` flags turn on the same behavior as `ONCE` and `DRY_RUN`. They do not turn off a value that came from the environment.
 
-O arquivo [`.env.example`](.env.example) lista as mesmas chaves.
+[`.env.example`](.env.example) lists the same keys.
 
-## Rodar local
+## Run locally
 
 ```bash
 cp .env.example .env
 ```
 
-Preencha `XAI_API_KEY` e `SLACK_WEBHOOK_URL`. Para o primeiro teste, limite o escopo com `NAMESPACES`.
+Fill in `XAI_API_KEY` and `SLACK_WEBHOOK_URL`. For a first test, limit the scope with `NAMESPACES`.
 
 ```bash
 set -a && source .env && set +a
 go run ./cmd/podwatch --once --dry-run
 ```
 
-Sem `--dry-run`, a mensagem vai para o Slack. Sem `--once`, o processo fica no loop até `SIGINT` ou `SIGTERM`.
+Without `--dry-run`, the message goes to Slack. Without `--once`, the process loops until `SIGINT` or `SIGTERM`.
 
 ```bash
 go test ./...
 ```
 
-## Publicar a imagem
+## Publish the image
 
-O workflow [`.github/workflows/docker.yml`](.github/workflows/docker.yml) roda em tags `v*`. Ele faz login no GHCR com `GITHUB_TOKEN` e publica `ghcr.io/nopp/k8s-agent-ai` para `linux/amd64` e `linux/arm64`.
+[`.github/workflows/docker.yml`](.github/workflows/docker.yml) runs on `v*` tags. It logs in to GHCR with `GITHUB_TOKEN` and publishes `ghcr.io/nopp/k8s-agent-ai` for `linux/amd64` and `linux/arm64`.
 
-Uma tag `v1.2.3` gera estas tags de imagem:
+A `v1.2.3` tag produces these image tags:
 
 - `1.2.3`
 - `1.2`
@@ -106,26 +115,26 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-O pacote fica em [github.com/nopp/k8s-agent-ai/pkgs](https://github.com/nopp/k8s-agent-ai/pkgs). O repositório é privado, então a imagem também é privada.
+The package is at [github.com/nopp/k8s-agent-ai/pkgs](https://github.com/nopp/k8s-agent-ai/pkgs). The repository is private, so the image is private too.
 
-## Rodar no cluster
+## Run in the cluster
 
-O manifesto cria o namespace `podwatch`, a ServiceAccount, a permissão de `get/list/watch` em pods e events, `get` em `pods/log`, e o Deployment. A imagem é `ghcr.io/nopp/k8s-agent-ai:latest`, com `imagePullPolicy: Always`. O secret `ghcr` é o que permite ao nó baixar essa imagem.
+The manifest creates the `podwatch` namespace, the ServiceAccount, `get/list/watch` on pods and events, `get` on `pods/log`, and the Deployment. The image is `ghcr.io/nopp/k8s-agent-ai:0.0.3`, with `imagePullPolicy: IfNotPresent`. The `ghcr` secret lets the node pull that image.
 
-Crie um PAT clássico com `read:packages`, ou um fine-grained com leitura de packages neste repositório.
+Create a classic PAT with `read:packages`, or a fine-grained token that can read packages in this repository.
 
 ```bash
 kubectl apply -f deploy/podwatch.yaml
 kubectl -n podwatch create secret docker-registry ghcr \
   --docker-server=ghcr.io \
   --docker-username=nopp \
-  --docker-password='<PAT com read:packages>'
+  --docker-password='<PAT with read:packages>'
 kubectl -n podwatch create secret generic podwatch \
   --from-literal=XAI_API_KEY='...' \
   --from-literal=SLACK_WEBHOOK_URL='https://hooks.slack.com/services/...'
 kubectl -n podwatch rollout restart deployment/podwatch
 ```
 
-O nome da tag `:latest` não muda entre versões, então um `kubectl apply` repetido não recria o Pod. Depois de publicar outra tag, rode o `rollout restart` para ele baixar a imagem nova. Para fixar uma versão, troque a imagem do Deployment para `ghcr.io/nopp/k8s-agent-ai:0.1.0`.
+To publish another version, change the image tag in the Deployment, for example `ghcr.io/nopp/k8s-agent-ai:0.0.4`, and apply again. The workflow also publishes `:latest`, but the manifest uses the pinned version.
 
-O Secret `podwatch` entra por `envFrom`. Intervalo, graça, cooldown, namespaces excluídos e o teto de alertas estão no Deployment e podem ser alterados lá.
+The `podwatch` Secret is loaded with `envFrom`. The interval, grace period, cooldown, excluded namespaces, and alert cap are set on the Deployment and can be changed there.

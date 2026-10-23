@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,47 @@ func TestScanFallsBackWhenModelFails(t *testing.T) {
 	}
 	if !strings.Contains(text, "análise automática falhou") {
 		t.Fatalf("text %s", text)
+	}
+}
+
+func TestScanPlainMessageWhenCreditsRunOut(t *testing.T) {
+	var texts []string
+	var diagnoses int
+	app := &Agent{
+		List: func(context.Context) ([]k8s.Report, error) {
+			return []k8s.Report{
+				{Namespace: "default", Name: "api", Severity: 100, Reasons: []k8s.Reason{{Code: "c:api:CrashLoopBackOff", Text: "CrashLoopBackOff no container api"}}},
+				{Namespace: "default", Name: "worker", Severity: 90, Reasons: []k8s.Reason{{Code: "c:worker:ImagePullBackOff", Text: "ImagePullBackOff no container worker"}}},
+			}, nil
+		},
+		Diagnose: func(context.Context, string) (diagnose.Diagnosis, error) {
+			diagnoses++
+			return diagnose.Diagnosis{}, fmt.Errorf("chamada: %w", diagnose.ErrOutOfCredits)
+		},
+		Notify: func(_ context.Context, text string) error {
+			texts = append(texts, text)
+			return nil
+		},
+		Dedup: dedup.New(time.Minute),
+		Now:   func() time.Time { return time.Unix(0, 0) },
+	}
+	sent, _, err := app.Scan(context.Background())
+	if err != nil || sent != 2 {
+		t.Fatalf("sent=%d err=%v", sent, err)
+	}
+	if diagnoses != 1 {
+		t.Fatalf("diagnose calls=%d", diagnoses)
+	}
+	for _, text := range texts {
+		if strings.Contains(text, "Causa") || strings.Contains(text, "Checar") || strings.Contains(text, "Hipótese") || strings.Contains(text, "análise automática") {
+			t.Fatalf("suggestion in %s", text)
+		}
+	}
+	if !strings.Contains(texts[0], "default/api") || !strings.Contains(texts[0], "CrashLoopBackOff") {
+		t.Fatalf("first %s", texts[0])
+	}
+	if !strings.Contains(texts[1], "default/worker") || !strings.Contains(texts[1], "ImagePullBackOff") {
+		t.Fatalf("second %s", texts[1])
 	}
 }
 

@@ -23,6 +23,17 @@ type Alert struct {
 	NextChecks []string
 }
 
+// RenderPlain is the message used when the model account has no credits left.
+// It names the pod and the problem and does not add a hypothesis.
+func RenderPlain(namespace, name, signal string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "*Pod com problema:* `%s/%s`\n", namespace, name)
+	if strings.TrimSpace(signal) != "" {
+		fmt.Fprintf(&b, "*Sinal:* %s\n", signal)
+	}
+	return clip(b.String(), 3500)
+}
+
 // Render builds a Slack mrkdwn message.
 func Render(a Alert) string {
 	var b strings.Builder

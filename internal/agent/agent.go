@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sort"
 	"time"
@@ -74,6 +75,10 @@ func (a *Agent) Scan(ctx context.Context) (sent int, found int, err error) {
 	})
 	now := a.now()
 	attempts := 0
+	// One exhausted-credit response covers the rest of this scan. The next
+	// poll tries the model again, so a top-up starts producing hypotheses
+	// without a restart.
+	skipModel := false
 	for _, item := range items {
 		if err := ctx.Err(); err != nil {
 			return sent, len(items), err
@@ -87,7 +92,7 @@ func (a *Agent) Scan(ctx context.Context) (sent int, found int, err error) {
 		}
 		attempts++
 		report := item
-		if a.Enrich != nil {
+		if !skipModel && a.Enrich != nil {
 			enriched, enrichErr := a.Enrich(ctx, item)
 			if enrichErr != nil {
 				if ctx.Err() != nil {
@@ -98,33 +103,51 @@ func (a *Agent) Scan(ctx context.Context) (sent int, found int, err error) {
 				report = enriched
 			}
 		}
-		evidence := redact.String(report.Evidence())
-		diag, diagErr := a.Diagnose(ctx, evidence)
-		if diagErr != nil {
-			if ctx.Err() != nil {
-				return sent, len(items), ctx.Err()
-			}
-			a.logger().Error("diagnóstico", "pod", report.Key(), "err", diagErr)
-			diag = diagnose.Fallback(report.Signal())
+		text, confidence, msgErr := a.message(ctx, report, &skipModel)
+		if msgErr != nil {
+			return sent, len(items), msgErr
 		}
-		text := redact.String(slack.Render(slack.Alert{
-			Namespace:  report.Namespace,
-			Name:       report.Name,
-			Signal:     report.Signal(),
-			Summary:    diag.Summary,
-			Confidence: diag.Confidence,
-			Evidence:   diag.Evidence,
-			NextChecks: diag.NextChecks,
-		}))
 		if err := a.Notify(ctx, text); err != nil {
 			a.logger().Error("slack", "pod", report.Key(), "err", err)
 			continue
 		}
 		a.dedup().Mark(report.Fingerprint(), now)
 		sent++
-		a.logger().Info("alerta enviado", "pod", report.Key(), "confiança", diag.Confidence)
+		a.logger().Info("alerta enviado", "pod", report.Key(), "confiança", confidence)
 	}
 	return sent, len(items), nil
+}
+
+// message builds the Slack text. When skipModel is set, the text is only the
+// pod and its problem. A credit failure sets skipModel for the caller.
+func (a *Agent) message(ctx context.Context, report k8s.Report, skipModel *bool) (string, string, error) {
+	plain := redact.String(slack.RenderPlain(report.Namespace, report.Name, report.Signal()))
+	if *skipModel {
+		return plain, "sem créditos", nil
+	}
+	evidence := redact.String(report.Evidence())
+	diag, err := a.Diagnose(ctx, evidence)
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", "", ctx.Err()
+		}
+		if errors.Is(err, diagnose.ErrOutOfCredits) {
+			*skipModel = true
+			a.logger().Error("créditos da IA esgotados", "pod", report.Key(), "err", err)
+			return plain, "sem créditos", nil
+		}
+		a.logger().Error("diagnóstico", "pod", report.Key(), "err", err)
+		diag = diagnose.Fallback(report.Signal())
+	}
+	return redact.String(slack.Render(slack.Alert{
+		Namespace:  report.Namespace,
+		Name:       report.Name,
+		Signal:     report.Signal(),
+		Summary:    diag.Summary,
+		Confidence: diag.Confidence,
+		Evidence:   diag.Evidence,
+		NextChecks: diag.NextChecks,
+	})), diag.Confidence, nil
 }
 
 func (a *Agent) now() time.Time {

@@ -27,6 +27,20 @@ func TestRender(t *testing.T) {
 	}
 }
 
+func TestRenderPlainOmitsHypothesis(t *testing.T) {
+	text := RenderPlain("payments", "api", "CrashLoopBackOff no container api")
+	for _, want := range []string{"payments/api", "CrashLoopBackOff no container api"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in %s", want, text)
+		}
+	}
+	for _, absent := range []string{"Causa", "Checar", "Indícios", "Hipótese"} {
+		if strings.Contains(text, absent) {
+			t.Fatalf("plain message contains %q: %s", absent, text)
+		}
+	}
+}
+
 func TestWebhook(t *testing.T) {
 	var got payload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,6 +56,11 @@ const diagnosisSchema = `{
   },
   "required": ["summary", "confidence", "evidence", "next_checks"]
 }`
+
+// ErrOutOfCredits means the account has no prepaid credits left, or it hit
+// the invoiced spending limit. The caller should report the pod without a
+// model hypothesis.
+var ErrOutOfCredits = errors.New("créditos da IA esgotados")
 
 // Client calls POST /v1/responses.
 type Client struct {
@@ -157,6 +163,9 @@ func (c *Client) Diagnose(ctx context.Context, evidence string) (Diagnosis, erro
 		return Diagnosis{}, fmt.Errorf("ler resposta do modelo: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if outOfCredits(resp.StatusCode, respRaw) {
+			return Diagnosis{}, fmt.Errorf("%w: %s", ErrOutOfCredits, clip(string(respRaw), 300))
+		}
 		return Diagnosis{}, fmt.Errorf("modelo respondeu %s: %s", resp.Status, clip(string(respRaw), 300))
 	}
 	var decoded responseBody
@@ -164,6 +173,9 @@ func (c *Client) Diagnose(ctx context.Context, evidence string) (Diagnosis, erro
 		return Diagnosis{}, fmt.Errorf("decodificar resposta do modelo: %w", err)
 	}
 	if msg := errorMessage(decoded.Error); msg != "" {
+		if outOfCredits(resp.StatusCode, respRaw) {
+			return Diagnosis{}, fmt.Errorf("%w: %s", ErrOutOfCredits, msg)
+		}
 		return Diagnosis{}, fmt.Errorf("resposta do modelo: %s", msg)
 	}
 	text := outputText(decoded)
@@ -246,6 +258,40 @@ func extractJSON(s string) string {
 		s = s[:i]
 	}
 	return strings.TrimSpace(s)
+}
+
+func outOfCredits(status int, body []byte) bool {
+	if status == http.StatusPaymentRequired {
+		return true
+	}
+	return creditPhrase(strings.ToLower(string(body)))
+}
+
+func creditPhrase(s string) bool {
+	phrases := []string{
+		"used all its credits",
+		"used all available credits",
+		"prepaid credits",
+		"out of credits",
+		"insufficient credits",
+		"credits are depleted",
+		"credits depleted",
+		"purchase more credits",
+		"spending limit",
+		"insufficient_quota",
+		"billing_hard_limit",
+		"exceeded your current quota",
+		"out of tokens",
+		"insufficient tokens",
+		"token balance",
+		"no remaining tokens",
+	}
+	for _, phrase := range phrases {
+		if strings.Contains(s, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 func errorMessage(raw json.RawMessage) string {

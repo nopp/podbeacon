@@ -3,6 +3,7 @@ package diagnose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -56,6 +57,33 @@ func TestDiagnoseParsesOutputText(t *testing.T) {
 	user, _ := input[1].(map[string]any)
 	if !strings.Contains(user["content"].(string), "default/api") {
 		t.Fatalf("user content %#v", user)
+	}
+}
+
+func TestDiagnoseOutOfCredits(t *testing.T) {
+	bodies := []struct {
+		status int
+		body   string
+		want   bool
+	}{
+		{status: http.StatusPaymentRequired, body: `{"error":"payment required"}`, want: true},
+		{status: http.StatusTooManyRequests, body: `{"error":{"message":"Your team has either used all its credits or reached its monthly spending limit."}}`, want: true},
+		{status: http.StatusTooManyRequests, body: `{"error":{"message":"Rate limit exceeded","code":"rate_limit"}}`, want: false},
+	}
+	for _, tt := range bodies {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tt.status)
+			_, _ = w.Write([]byte(tt.body))
+		}))
+		c := New(srv.URL, "k", "grok-4.7", srv.Client())
+		_, err := c.Diagnose(context.Background(), "pod")
+		srv.Close()
+		if err == nil {
+			t.Fatalf("status %d: expected error", tt.status)
+		}
+		if errors.Is(err, ErrOutOfCredits) != tt.want {
+			t.Fatalf("status %d body %s: out of credits=%v, err=%v", tt.status, tt.body, tt.want, err)
+		}
 	}
 }
 
