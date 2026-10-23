@@ -8,8 +8,6 @@ on:
 permissions:
   contents: read
   packages: write
-  attestations: write
-  id-token: write
 
 jobs:
   build-and-push:
@@ -32,10 +30,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
-          labels: |
-            org.opencontainers.image.title=podbeacon
-            org.opencontainers.image.description=kubernetes Pod Health & Alerting Agent
+          images: ghcr.io/nopp/podbeacon
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -46,8 +41,5 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
