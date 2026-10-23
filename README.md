@@ -1,8 +1,6 @@
-<img src="assets/logo.png" alt="podbeacon" width="240">
-
-# podbeacon
-
-kubernetes Pod Health & Alerting Agent
+<p align="center">
+  <img src="assets/logo.png" width="40%">
+</p>
 
 A Go agent that finds unhealthy Pods, asks a model for a likely cause, and posts the hypothesis to a Slack channel. When that problem later clears, it posts whether the Pod recovered or is gone.
 
