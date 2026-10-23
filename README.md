@@ -4,9 +4,10 @@
 
 A Go agent that finds unhealthy Pods, asks a model for a likely cause, and posts the hypothesis to a Slack channel. When that problem later clears, it posts whether the Pod recovered or is gone.
 
-For now, Grok is the only model. ChatGPT and Claude are planned.
-
 The scan talks only to the Kubernetes API. The model API is called only when a Pod is new enough to alert on.
+
+## Model support
+**Currently, Grok is the only supported model. Support for ChatGPT and Claude is planned.**
 
 ## How it works
 
