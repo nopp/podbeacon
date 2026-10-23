@@ -10,7 +10,7 @@ The scan talks only to the Kubernetes API. The model API is called only when a P
 2. Classification is local. A healthy Pod, a `Succeeded` Pod, and a Pod that is being deleted stop here.
 3. For each problem that has not been alerted yet, the agent reads that Pod's events and a log tail from the affected containers.
 4. That report goes out in a single `POST /v1/responses` call (`XAI_MODEL`, default `grok-4.7`). There are no tools and no conversation continuation. The request sets `store: false`.
-5. The answer becomes a short Slack card: pod, problem, and, when known, phase, node, and restart count, then a one-line likely cause and up to three checks. The card says the cause is a hypothesis.
+5. The answer becomes one Slack message: pod, a short reason (not the raw API error), the container image when it matters, and, when known, phase, node, and restart count, then a one-line likely cause and up to three checks. The message says the cause is a hypothesis.
 
 Silence is kept in the process memory. Two replicas would send the same message. The Deployment in `deploy/podwatch.yaml` uses one replica and the `Recreate` strategy.
 
@@ -21,7 +21,7 @@ A later scan checks every Pod that already produced a card. If the Pod is still 
 ```
 *payments/api*
 *Estado:* Corrigido
-*Problema:* CrashLoopBackOff no container api
+*Problema:* CrashLoopBackOff · api
 ```
 
 If Slack rejects the card, the next scan tries again. After the card is sent, the same problem can alert again immediately, including during `ALERT_COOLDOWN`. A restart forgets which cards are still open, so it does not send a closing card for alerts posted before the restart. A Pod that is still unhealthy, only with a different reason, stays open and gets a new problem card instead of a closing one.
@@ -32,7 +32,7 @@ When the xAI account is out of prepaid credits, or the invoiced spending limit h
 
 ```
 *payments/api*
-*Problema:* CrashLoopBackOff no container api
+*Problema:* CrashLoopBackOff · api
 *Fase:* Running
 ```
 

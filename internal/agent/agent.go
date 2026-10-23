@@ -203,7 +203,7 @@ func (a *Agent) noteOpen(report k8s.Report) {
 	inc := a.open[key]
 	inc.namespace = report.Namespace
 	inc.name = report.Name
-	inc.problem = redact.String(report.Problem())
+	inc.problem = redact.String(report.Headline())
 	fp := report.Fingerprint()
 	seen := false
 	for _, have := range inc.fingerprints {
@@ -246,7 +246,8 @@ func card(report k8s.Report, diag diagnose.Diagnosis, plain bool) slack.Alert {
 	return slack.Alert{
 		Namespace:  report.Namespace,
 		Name:       report.Name,
-		Problem:    report.Problem(),
+		Problem:    report.Headline(),
+		Image:      report.Image(),
 		Phase:      report.Phase,
 		Node:       report.Node,
 		Restarts:   report.Restarts(),
@@ -259,6 +260,7 @@ func card(report k8s.Report, diag diagnose.Diagnosis, plain bool) slack.Alert {
 
 func scrub(a slack.Alert) slack.Alert {
 	a.Problem = redact.String(a.Problem)
+	a.Image = redact.String(a.Image)
 	a.Phase = redact.String(a.Phase)
 	a.Node = redact.String(a.Node)
 	a.Summary = redact.String(a.Summary)

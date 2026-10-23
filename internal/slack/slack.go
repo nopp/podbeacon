@@ -18,6 +18,7 @@ type Alert struct {
 	Namespace  string
 	Name       string
 	Problem    string
+	Image      string
 	Phase      string
 	Node       string
 	Restarts   int32
@@ -27,21 +28,16 @@ type Alert struct {
 	Plain      bool
 }
 
-// Message is a Slack card. Text is the notification fallback. Preview is the
-// readable form used by dry-run and is not sent.
+// Message is one Slack post. Text is only the notification fallback: the
+// channel shows Blocks. Attachments are avoided because Slack prints Text
+// above them and collapses the card behind "Show more".
 type Message struct {
-	Channel     string       `json:"channel,omitempty"`
-	Text        string       `json:"text"`
-	Attachments []Attachment `json:"attachments,omitempty"`
-	Preview     string       `json:"-"`
-}
-
-// Attachment is the colored card Slack shows in the channel.
-// Fallback is the plain line used by clients that cannot render the card.
-type Attachment struct {
-	Color    string  `json:"color,omitempty"`
-	Fallback string  `json:"fallback,omitempty"`
-	Blocks   []Block `json:"blocks,omitempty"`
+	Channel     string  `json:"channel,omitempty"`
+	Text        string  `json:"text"`
+	Blocks      []Block `json:"blocks,omitempty"`
+	UnfurlLinks bool    `json:"unfurl_links"`
+	UnfurlMedia bool    `json:"unfurl_media"`
+	Preview     string  `json:"-"`
 }
 
 // Block is one Block Kit element. Unused fields stay out of the JSON.
@@ -59,26 +55,33 @@ type TextObject struct {
 	Emoji bool   `json:"emoji,omitempty"`
 }
 
-// Render builds a short card. The problem is full width. Phase, node, and
-// restarts sit on the row under it. A plain card stops there.
+// Render builds a short card. The raw API error stays out of the channel.
+// A plain card stops after the pod facts.
 func Render(a Alert) Message {
 	title := clip(oneLine(podTitle(a.Namespace, a.Name)), 140)
 	if title == "" {
 		title = "pod"
 	}
-	problem := clip(oneLine(a.Problem), 200)
-	summary := clip(oneLine(a.Summary), 280)
-	checks := cleanList(a.NextChecks, 3, 140)
+	problem := clip(shortProblem(a.Problem), 120)
+	image := clip(oneLine(a.Image), 180)
+	summary := clip(oneLine(a.Summary), 220)
+	checks := cleanList(a.NextChecks, 3, 120)
 	phase := oneLine(a.Phase)
 	node := oneLine(a.Node)
 
-	blocks := []Block{{
-		Type: "header",
-		Text: &TextObject{Type: "plain_text", Text: title, Emoji: true},
-	}}
-	if problem != "" {
-		blocks = append(blocks, Block{Type: "section", Text: mrkdwn("*" + escapeMrkdwn(problem) + "*")})
+	mark := ":red_circle:"
+	if a.Plain {
+		mark = ":large_yellow_circle:"
 	}
+	var head strings.Builder
+	fmt.Fprintf(&head, "%s *%s*", mark, escapeMrkdwn(title))
+	if problem != "" {
+		fmt.Fprintf(&head, "\n*%s*", escapeMrkdwn(problem))
+	}
+	if image != "" {
+		fmt.Fprintf(&head, "\n%s", codeSpan(image))
+	}
+	blocks := []Block{{Type: "section", Text: mrkdwn(head.String())}}
 
 	var fields []TextObject
 	if phase != "" {
@@ -97,54 +100,42 @@ func Render(a Alert) Message {
 	var body strings.Builder
 	fmt.Fprintf(&body, "*%s*\n", title)
 	writePreview(&body, "Problema", problem)
+	writePreview(&body, "Imagem", image)
 	writePreview(&body, "Fase", phase)
 	writePreview(&body, "Node", node)
 	if a.Restarts > 0 {
 		writePreview(&body, "Reinícios", fmt.Sprintf("%d", a.Restarts))
 	}
 
-	color := "#E01E5A"
 	if !a.Plain {
 		if summary == "" {
 			summary = "Sem uma causa clara a partir dos dados coletados."
 		}
 		label := confidenceLabel(a.Confidence)
-		blocks = append(blocks,
-			Block{Type: "divider"},
-			Block{Type: "section", Text: mrkdwn(fmt.Sprintf("*Causa provável · %s*\n%s", label, escapeMrkdwn(summary)))},
-		)
+		var cause strings.Builder
+		fmt.Fprintf(&cause, "*Causa provável · %s*\n%s", label, escapeMrkdwn(summary))
+		if len(checks) > 0 {
+			cause.WriteString("\n")
+			for _, item := range checks {
+				fmt.Fprintf(&cause, "\n• %s", escapeMrkdwn(item))
+			}
+		}
+		cause.WriteString("\n_Hipótese do modelo. Confira antes de agir._")
+		blocks = append(blocks, Block{Type: "section", Text: mrkdwn(cause.String())})
 		fmt.Fprintf(&body, "*Causa provável (%s):* %s\n", label, summary)
 		if len(checks) > 0 {
-			var list strings.Builder
-			list.WriteString("*Checar*\n")
 			body.WriteString("*Checar:*\n")
 			for _, item := range checks {
-				fmt.Fprintf(&list, "• %s\n", escapeMrkdwn(item))
 				fmt.Fprintf(&body, "• %s\n", item)
 			}
-			blocks = append(blocks, Block{Type: "section", Text: mrkdwn(strings.TrimRight(list.String(), "\n"))})
 		}
-		blocks = append(blocks, Block{
-			Type:     "context",
-			Elements: []TextObject{{Type: "mrkdwn", Text: "Hipótese do modelo. Confira antes de agir."}},
-		})
-	} else {
-		color = "#ECB22E"
 	}
 
 	line := title
 	if problem != "" {
 		line += " — " + problem
 	}
-	return Message{
-		Text:    clip(line, 200),
-		Preview: strings.TrimRight(body.String(), "\n"),
-		Attachments: []Attachment{{
-			Color:    color,
-			Fallback: clip(line, 200),
-			Blocks:   blocks,
-		}},
-	}
+	return message(line, body.String(), blocks)
 }
 
 // RenderClosed builds the card sent when an alerted problem is over.
@@ -154,39 +145,51 @@ func RenderClosed(a Alert, gone bool) Message {
 	if title == "" {
 		title = "pod"
 	}
-	problem := clip(oneLine(a.Problem), 200)
+	problem := clip(shortProblem(a.Problem), 120)
 	status := "Corrigido"
 	detail := "O problema não está mais neste pod."
-	color := "#2EB67D"
+	mark := ":large_green_circle:"
 	line := title + " — corrigido"
 	if gone {
 		status = "Não existe mais"
 		detail = "O pod não está mais no cluster."
-		color = "#616061"
+		mark = ":white_circle:"
 		line = title + " — não existe mais"
 	}
 
-	blocks := []Block{
-		{Type: "header", Text: &TextObject{Type: "plain_text", Text: title, Emoji: true}},
-		{Type: "section", Text: mrkdwn(fmt.Sprintf("*%s*\n%s", status, detail))},
-	}
+	var head strings.Builder
+	fmt.Fprintf(&head, "%s *%s*\n*%s*\n%s", mark, escapeMrkdwn(title), status, detail)
 	if problem != "" {
-		blocks = append(blocks, Block{Type: "section", Text: mrkdwn("*Problema*\n" + escapeMrkdwn(problem))})
+		fmt.Fprintf(&head, "\n%s", escapeMrkdwn(problem))
 	}
-
 	var body strings.Builder
 	fmt.Fprintf(&body, "*%s*\n", title)
 	writePreview(&body, "Estado", status)
 	writePreview(&body, "Problema", problem)
+	return message(line, body.String(), []Block{{Type: "section", Text: mrkdwn(head.String())}})
+}
+
+func message(line, preview string, blocks []Block) Message {
 	return Message{
-		Text:    clip(line, 200),
-		Preview: strings.TrimRight(body.String(), "\n"),
-		Attachments: []Attachment{{
-			Color:    color,
-			Fallback: clip(line, 200),
-			Blocks:   blocks,
-		}},
+		Text:        clip(line, 200),
+		Preview:     strings.TrimRight(preview, "\n"),
+		Blocks:      blocks,
+		UnfurlLinks: false,
+		UnfurlMedia: false,
 	}
+}
+
+func shortProblem(s string) string {
+	s = oneLine(s)
+	if i := strings.Index(s, ": "); i > 0 && i <= 80 {
+		s = strings.TrimSpace(s[:i])
+	}
+	return s
+}
+
+func codeSpan(s string) string {
+	s = strings.ReplaceAll(s, "`", "'")
+	return "`" + escapeMrkdwn(s) + "`"
 }
 
 func mrkdwn(text string) *TextObject {

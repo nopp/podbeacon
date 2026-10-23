@@ -9,7 +9,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// Problem is the first reason, short enough for the Slack card title line.
+// Problem is the first reason, including the API message. The model sees this.
+// Slack uses Headline so the channel does not get the raw error.
 func (r Report) Problem() string {
 	if len(r.Reasons) == 0 {
 		return ""
@@ -19,6 +20,41 @@ func (r Report) Problem() string {
 		text = fmt.Sprintf("%s · +%d", text, extra)
 	}
 	return text
+}
+
+// Headline is the reason without the kubelet message that follows ": ".
+func (r Report) Headline() string {
+	if len(r.Reasons) == 0 {
+		return ""
+	}
+	head := r.Reasons[0].Text
+	if i := strings.Index(head, ": "); i >= 0 {
+		head = head[:i]
+	}
+	head = strings.TrimSpace(head)
+	head = strings.Replace(head, " no init container ", " · ", 1)
+	head = strings.Replace(head, " no container ", " · ", 1)
+	if extra := len(r.Reasons) - 1; extra > 0 {
+		head = fmt.Sprintf("%s · +%d", head, extra)
+	}
+	return head
+}
+
+// Image is the image of the container named by the first reason.
+func (r Report) Image() string {
+	name := ""
+	if len(r.Reasons) > 0 {
+		name = r.Reasons[0].Container
+	}
+	if name == "" {
+		return ""
+	}
+	for _, c := range r.Containers {
+		if c.Name == name && c.Image != "" {
+			return c.Image
+		}
+	}
+	return ""
 }
 
 // Restarts is the highest restart count among the containers that are failing.

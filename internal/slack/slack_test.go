@@ -15,6 +15,7 @@ func TestRender(t *testing.T) {
 		Namespace:  "default",
 		Name:       "api",
 		Problem:    "CrashLoopBackOff no container api",
+		Image:      "docker.io/library/nginx:9",
 		Phase:      "Running",
 		Node:       "node-a",
 		Restarts:   7,
@@ -31,13 +32,34 @@ func TestRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"attachments"`, `"header"`, "#E01E5A", "Causa provável", "*CrashLoopBackOff no container api*"} {
+	for _, want := range []string{`"blocks"`, ":red_circle:", "Causa provável", "*CrashLoopBackOff no container api*", "`docker.io/library/nginx:9`", `"unfurl_links":false`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("missing %q in %s", want, raw)
 		}
 	}
-	if strings.Contains(string(raw), "*Problema*") {
-		t.Fatalf("problem should be its own line, not a field: %s", raw)
+	for _, absent := range []string{`"attachments"`, `"header"`, "rpc error"} {
+		if strings.Contains(string(raw), absent) {
+			t.Fatalf("card contains %q: %s", absent, raw)
+		}
+	}
+}
+
+func TestRenderDropsRawAPIError(t *testing.T) {
+	msg := Render(Alert{
+		Namespace: "default",
+		Name:      "nginx",
+		Problem:   `ErrImagePull no container nginx: rpc error: code = NotFound desc = failed to pull image "docker.io/library/nginx:9"`,
+		Image:     "docker.io/library/nginx:9",
+	})
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "rpc error") || strings.Contains(msg.Preview, "rpc error") {
+		t.Fatalf("raw error leaked: %s", raw)
+	}
+	if !strings.Contains(string(raw), "ErrImagePull no container nginx") {
+		t.Fatalf("headline missing: %s", raw)
 	}
 }
 
@@ -62,8 +84,8 @@ func TestRenderPlainOmitsHypothesis(t *testing.T) {
 			t.Fatalf("plain card contains %q: %s", absent, raw)
 		}
 	}
-	if !strings.Contains(string(raw), "#ECB22E") {
-		t.Fatalf("plain color: %s", raw)
+	if !strings.Contains(string(raw), ":large_yellow_circle:") || strings.Contains(string(raw), `"attachments"`) {
+		t.Fatalf("plain card: %s", raw)
 	}
 }
 
@@ -80,7 +102,7 @@ func TestRenderClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "#2EB67D") || strings.Contains(string(raw), "Causa") || strings.Contains(string(raw), "Hipótese") {
+	if !strings.Contains(string(raw), ":large_green_circle:") || strings.Contains(string(raw), "Causa") || strings.Contains(string(raw), "Hipótese") || strings.Contains(string(raw), `"attachments"`) {
 		t.Fatalf("fixed json %s", raw)
 	}
 
@@ -92,8 +114,8 @@ func TestRenderClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "#616061") {
-		t.Fatalf("gone color %s", raw)
+	if !strings.Contains(string(raw), ":white_circle:") {
+		t.Fatalf("gone mark %s", raw)
 	}
 }
 
