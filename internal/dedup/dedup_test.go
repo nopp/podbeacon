@@ -21,4 +21,8 @@ func TestCooldown(t *testing.T) {
 	if !s.Allow("other/api|c:api:CrashLoopBackOff", now) {
 		t.Fatal("a different pod is independent")
 	}
+	s.Forget("default/api|c:api:CrashLoopBackOff")
+	if !s.Allow("default/api|c:api:CrashLoopBackOff", now) {
+		t.Fatal("forgotten key should send again")
+	}
 }

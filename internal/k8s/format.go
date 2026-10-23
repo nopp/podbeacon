@@ -9,7 +9,24 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// Signal is the one-line summary used in Slack.
+// Problem is the first reason, short enough for the Slack card title line.
+func (r Report) Problem() string {
+	if len(r.Reasons) == 0 {
+		return ""
+	}
+	text := r.Reasons[0].Text
+	if extra := len(r.Reasons) - 1; extra > 0 {
+		text = fmt.Sprintf("%s · +%d", text, extra)
+	}
+	return text
+}
+
+// Restarts is the highest restart count among the containers that are failing.
+func (r Report) Restarts() int32 {
+	return r.problemRestarts()
+}
+
+// Signal is the one-line summary used when the model call fails.
 func (r Report) Signal() string {
 	var parts []string
 	for i, reason := range r.Reasons {

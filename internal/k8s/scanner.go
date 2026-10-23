@@ -26,6 +26,12 @@ type Options struct {
 	Now         func() time.Time
 }
 
+// Presence is a pod still returned by the API in the scanned scope.
+// Deleting is true when the pod has a deletion timestamp.
+type Presence struct {
+	Deleting bool
+}
+
 // Scanner lists unhealthy pods and attaches events and log tails.
 type Scanner struct {
 	client  kubernetes.Interface
@@ -52,12 +58,43 @@ func NewScanner(client kubernetes.Interface, opt Options) *Scanner {
 
 // List returns unhealthy pods without events or logs.
 func (s *Scanner) List(ctx context.Context) ([]Report, error) {
+	pods, err := s.podsInScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := s.opt.Now()
+	var out []Report
+	for i := range pods {
+		report, bad := Inspect(&pods[i], now, s.opt.Grace)
+		if !bad {
+			continue
+		}
+		out = append(out, report)
+	}
+	return out, nil
+}
+
+// Present returns every pod in scope, including healthy ones.
+// A pod that is being deleted stays in the map with Deleting set.
+func (s *Scanner) Present(ctx context.Context) (map[string]Presence, error) {
+	pods, err := s.podsInScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Presence, len(pods))
+	for i := range pods {
+		pod := &pods[i]
+		out[pod.Namespace+"/"+pod.Name] = Presence{Deleting: pod.DeletionTimestamp != nil}
+	}
+	return out, nil
+}
+
+func (s *Scanner) podsInScope(ctx context.Context) ([]corev1.Pod, error) {
 	namespaces := s.opt.Include
 	if len(namespaces) == 0 {
 		namespaces = []string{""}
 	}
-	now := s.opt.Now()
-	var out []Report
+	var out []corev1.Pod
 	for _, ns := range namespaces {
 		if ns != "" {
 			if _, skip := s.exclude[ns]; skip {
@@ -73,15 +110,10 @@ func (s *Scanner) List(ctx context.Context) ([]Report, error) {
 			return nil, fmt.Errorf("listar pods em %s: %w", where, err)
 		}
 		for i := range pods {
-			pod := &pods[i]
-			if _, skip := s.exclude[pod.Namespace]; skip {
+			if _, skip := s.exclude[pods[i].Namespace]; skip {
 				continue
 			}
-			report, bad := Inspect(pod, now, s.opt.Grace)
-			if !bad {
-				continue
-			}
-			out = append(out, report)
+			out = append(out, pods[i])
 		}
 	}
 	return out, nil

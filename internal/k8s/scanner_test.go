@@ -42,6 +42,43 @@ func TestListSkipsHealthyAndExcluded(t *testing.T) {
 	}
 }
 
+func TestPresentIncludesHealthyAndMarksDeleting(t *testing.T) {
+	now := time.Date(2026, 10, 23, 15, 0, 0, 0, time.UTC)
+	bad := crashLoopPod(now, 5*time.Minute, "back-off")
+	healthy := readyPod(now)
+	healthy.Name = "web"
+	dying := readyPod(now)
+	dying.Name = "old"
+	ts := metav1.NewTime(now)
+	dying.DeletionTimestamp = &ts
+	system := readyPod(now)
+	system.Namespace = "kube-system"
+	system.Name = "dns"
+
+	cs := fake.NewClientset(bad, healthy, dying, system)
+	s := NewScanner(cs, Options{
+		Exclude: []string{"kube-system"},
+		Grace:   2 * time.Minute,
+		Now:     func() time.Time { return now },
+	})
+	got, err := s.Present(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view, ok := got["default/api"]; !ok || view.Deleting {
+		t.Fatalf("unhealthy pod %#v", got)
+	}
+	if _, ok := got["default/web"]; !ok {
+		t.Fatalf("healthy pod missing: %#v", got)
+	}
+	if view, ok := got["default/old"]; !ok || !view.Deleting {
+		t.Fatalf("deleting pod %#v", got)
+	}
+	if _, ok := got["kube-system/dns"]; ok {
+		t.Fatalf("excluded namespace present: %#v", got)
+	}
+}
+
 func TestEnrichRecordsLogFailure(t *testing.T) {
 	now := time.Date(2026, 10, 23, 15, 0, 0, 0, time.UTC)
 	pod := crashLoopPod(now, 5*time.Minute, "back-off")

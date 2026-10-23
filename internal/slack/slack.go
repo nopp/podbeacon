@@ -13,60 +13,232 @@ import (
 )
 
 // Alert is the message content, already redacted by the caller.
+// Plain omits the cause and the checks.
 type Alert struct {
 	Namespace  string
 	Name       string
-	Signal     string
+	Problem    string
+	Phase      string
+	Node       string
+	Restarts   int32
 	Summary    string
 	Confidence string
-	Evidence   []string
 	NextChecks []string
+	Plain      bool
 }
 
-// RenderPlain is the message used when the model account has no credits left.
-// It names the pod and the problem and does not add a hypothesis.
-func RenderPlain(namespace, name, signal string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "*Pod com problema:* `%s/%s`\n", namespace, name)
-	if strings.TrimSpace(signal) != "" {
-		fmt.Fprintf(&b, "*Sinal:* %s\n", signal)
-	}
-	return clip(b.String(), 3500)
+// Message is a Slack card. Text is the notification fallback. Preview is the
+// readable form used by dry-run and is not sent.
+type Message struct {
+	Channel     string       `json:"channel,omitempty"`
+	Text        string       `json:"text"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	Preview     string       `json:"-"`
 }
 
-// Render builds a Slack mrkdwn message.
-func Render(a Alert) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "*Pod com problema:* `%s/%s`\n", a.Namespace, a.Name)
-	if a.Signal != "" {
-		fmt.Fprintf(&b, "*Sinal:* %s\n", a.Signal)
-	}
-	summary := strings.TrimSpace(a.Summary)
-	if summary == "" {
-		summary = "Sem uma causa clara a partir dos dados coletados."
-	}
-	fmt.Fprintf(&b, "*Causa provável (%s):* %s\n", confidenceLabel(a.Confidence), summary)
-	writeBullets(&b, "Indícios", a.Evidence)
-	writeBullets(&b, "Checar", a.NextChecks)
-	b.WriteString("_Hipótese do modelo. Confira eventos e logs antes de agir._")
-	return clip(b.String(), 3500)
+// Attachment is the colored card Slack shows in the channel.
+// Fallback is the plain line used by clients that cannot render the card.
+type Attachment struct {
+	Color    string  `json:"color,omitempty"`
+	Fallback string  `json:"fallback,omitempty"`
+	Blocks   []Block `json:"blocks,omitempty"`
 }
 
-func writeBullets(b *strings.Builder, title string, items []string) {
-	var kept []string
-	for _, item := range items {
-		item = strings.TrimSpace(item)
-		if item != "" {
-			kept = append(kept, item)
+// Block is one Block Kit element. Unused fields stay out of the JSON.
+type Block struct {
+	Type     string       `json:"type"`
+	Text     *TextObject  `json:"text,omitempty"`
+	Fields   []TextObject `json:"fields,omitempty"`
+	Elements []TextObject `json:"elements,omitempty"`
+}
+
+// TextObject is a Block Kit text node.
+type TextObject struct {
+	Type  string `json:"type"`
+	Text  string `json:"text"`
+	Emoji bool   `json:"emoji,omitempty"`
+}
+
+// Render builds a short card. The problem is full width. Phase, node, and
+// restarts sit on the row under it. A plain card stops there.
+func Render(a Alert) Message {
+	title := clip(oneLine(podTitle(a.Namespace, a.Name)), 140)
+	if title == "" {
+		title = "pod"
+	}
+	problem := clip(oneLine(a.Problem), 200)
+	summary := clip(oneLine(a.Summary), 280)
+	checks := cleanList(a.NextChecks, 3, 140)
+	phase := oneLine(a.Phase)
+	node := oneLine(a.Node)
+
+	blocks := []Block{{
+		Type: "header",
+		Text: &TextObject{Type: "plain_text", Text: title, Emoji: true},
+	}}
+	if problem != "" {
+		blocks = append(blocks, Block{Type: "section", Text: mrkdwn("*" + escapeMrkdwn(problem) + "*")})
+	}
+
+	var fields []TextObject
+	if phase != "" {
+		fields = append(fields, field("Fase", phase))
+	}
+	if node != "" {
+		fields = append(fields, field("Node", node))
+	}
+	if a.Restarts > 0 {
+		fields = append(fields, field("Reinícios", fmt.Sprintf("%d", a.Restarts)))
+	}
+	if len(fields) > 0 {
+		blocks = append(blocks, Block{Type: "section", Fields: fields})
+	}
+
+	var body strings.Builder
+	fmt.Fprintf(&body, "*%s*\n", title)
+	writePreview(&body, "Problema", problem)
+	writePreview(&body, "Fase", phase)
+	writePreview(&body, "Node", node)
+	if a.Restarts > 0 {
+		writePreview(&body, "Reinícios", fmt.Sprintf("%d", a.Restarts))
+	}
+
+	color := "#E01E5A"
+	if !a.Plain {
+		if summary == "" {
+			summary = "Sem uma causa clara a partir dos dados coletados."
 		}
+		label := confidenceLabel(a.Confidence)
+		blocks = append(blocks,
+			Block{Type: "divider"},
+			Block{Type: "section", Text: mrkdwn(fmt.Sprintf("*Causa provável · %s*\n%s", label, escapeMrkdwn(summary)))},
+		)
+		fmt.Fprintf(&body, "*Causa provável (%s):* %s\n", label, summary)
+		if len(checks) > 0 {
+			var list strings.Builder
+			list.WriteString("*Checar*\n")
+			body.WriteString("*Checar:*\n")
+			for _, item := range checks {
+				fmt.Fprintf(&list, "• %s\n", escapeMrkdwn(item))
+				fmt.Fprintf(&body, "• %s\n", item)
+			}
+			blocks = append(blocks, Block{Type: "section", Text: mrkdwn(strings.TrimRight(list.String(), "\n"))})
+		}
+		blocks = append(blocks, Block{
+			Type:     "context",
+			Elements: []TextObject{{Type: "mrkdwn", Text: "Hipótese do modelo. Confira antes de agir."}},
+		})
+	} else {
+		color = "#ECB22E"
 	}
-	if len(kept) == 0 {
+
+	line := title
+	if problem != "" {
+		line += " — " + problem
+	}
+	return Message{
+		Text:    clip(line, 200),
+		Preview: strings.TrimRight(body.String(), "\n"),
+		Attachments: []Attachment{{
+			Color:    color,
+			Fallback: clip(line, 200),
+			Blocks:   blocks,
+		}},
+	}
+}
+
+// RenderClosed builds the card sent when an alerted problem is over.
+// gone means the pod left the API or is being deleted. Otherwise it recovered.
+func RenderClosed(a Alert, gone bool) Message {
+	title := clip(oneLine(podTitle(a.Namespace, a.Name)), 140)
+	if title == "" {
+		title = "pod"
+	}
+	problem := clip(oneLine(a.Problem), 200)
+	status := "Corrigido"
+	detail := "O problema não está mais neste pod."
+	color := "#2EB67D"
+	line := title + " — corrigido"
+	if gone {
+		status = "Não existe mais"
+		detail = "O pod não está mais no cluster."
+		color = "#616061"
+		line = title + " — não existe mais"
+	}
+
+	blocks := []Block{
+		{Type: "header", Text: &TextObject{Type: "plain_text", Text: title, Emoji: true}},
+		{Type: "section", Text: mrkdwn(fmt.Sprintf("*%s*\n%s", status, detail))},
+	}
+	if problem != "" {
+		blocks = append(blocks, Block{Type: "section", Text: mrkdwn("*Problema*\n" + escapeMrkdwn(problem))})
+	}
+
+	var body strings.Builder
+	fmt.Fprintf(&body, "*%s*\n", title)
+	writePreview(&body, "Estado", status)
+	writePreview(&body, "Problema", problem)
+	return Message{
+		Text:    clip(line, 200),
+		Preview: strings.TrimRight(body.String(), "\n"),
+		Attachments: []Attachment{{
+			Color:    color,
+			Fallback: clip(line, 200),
+			Blocks:   blocks,
+		}},
+	}
+}
+
+func mrkdwn(text string) *TextObject {
+	return &TextObject{Type: "mrkdwn", Text: text}
+}
+
+func podTitle(namespace, name string) string {
+	switch {
+	case namespace != "" && name != "":
+		return namespace + "/" + name
+	case name != "":
+		return name
+	default:
+		return namespace
+	}
+}
+
+func field(label, value string) TextObject {
+	return TextObject{Type: "mrkdwn", Text: fmt.Sprintf("*%s*\n%s", label, escapeMrkdwn(value))}
+}
+
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func escapeMrkdwn(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
+}
+
+func writePreview(b *strings.Builder, label, value string) {
+	if value == "" {
 		return
 	}
-	fmt.Fprintf(b, "*%s:*\n", title)
-	for _, item := range kept {
-		fmt.Fprintf(b, "• %s\n", item)
+	fmt.Fprintf(b, "*%s:* %s\n", label, value)
+}
+
+func cleanList(items []string, n, width int) []string {
+	var out []string
+	for _, item := range items {
+		item = clip(oneLine(item), width)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+		if len(out) == n {
+			break
+		}
 	}
+	return out
 }
 
 func confidenceLabel(c string) string {
@@ -96,14 +268,8 @@ func New(webhook, token, channel string, httpClient *http.Client) *Client {
 	return &Client{WebhookURL: webhook, BotToken: token, Channel: channel, HTTP: httpClient}
 }
 
-type payload struct {
-	Channel string `json:"channel,omitempty"`
-	Text    string `json:"text"`
-}
-
-// Send posts text. WebhookURL wins when it is set.
-func (c *Client) Send(ctx context.Context, text string) error {
-	body := payload{Text: text}
+// Send posts the card. WebhookURL wins when it is set.
+func (c *Client) Send(ctx context.Context, msg Message) error {
 	endpoint := c.WebhookURL
 	var token string
 	if endpoint == "" {
@@ -111,10 +277,10 @@ func (c *Client) Send(ctx context.Context, text string) error {
 		if endpoint == "" {
 			endpoint = "https://slack.com/api/chat.postMessage"
 		}
-		body.Channel = c.Channel
+		msg.Channel = c.Channel
 		token = c.BotToken
 	}
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
@@ -158,13 +324,17 @@ func (c *Client) Send(ctx context.Context, text string) error {
 	return nil
 }
 
-// DryRun prints the message and does not call Slack.
-func DryRun(w io.Writer) func(context.Context, string) error {
-	return func(ctx context.Context, text string) error {
+// DryRun prints the card and does not call Slack.
+func DryRun(w io.Writer) func(context.Context, Message) error {
+	return func(ctx context.Context, msg Message) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		_, err := fmt.Fprintln(w, text)
+		body := msg.Preview
+		if body == "" {
+			body = msg.Text
+		}
+		_, err := fmt.Fprintln(w, body)
 		return err
 	}
 }

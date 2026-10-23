@@ -34,3 +34,10 @@ func (s *Store) Mark(key string, now time.Time) {
 	defer s.mu.Unlock()
 	s.last[key] = now
 }
+
+// Forget drops a key so the same problem can alert again after it had cleared.
+func (s *Store) Forget(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.last, key)
+}

@@ -50,7 +50,7 @@ func main() {
 	})
 	model := diagnose.New(cfg.XAIBaseURL, cfg.XAIKey, cfg.XAIModel, &http.Client{Timeout: cfg.XAITimeout})
 
-	var notify func(context.Context, string) error
+	var notify func(context.Context, slack.Message) error
 	if cfg.DryRun {
 		notify = slack.DryRun(os.Stdout)
 	} else {
@@ -59,6 +59,7 @@ func main() {
 
 	app := &agent.Agent{
 		List:       scanner.List,
+		Present:    scanner.Present,
 		Enrich:     scanner.Enrich,
 		Diagnose:   model.Diagnose,
 		Notify:     notify,
