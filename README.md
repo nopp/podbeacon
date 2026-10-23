@@ -116,23 +116,6 @@ Without `--dry-run`, the message goes to Slack. Without `--once`, the process lo
 go test ./...
 ```
 
-## Publish the image
-
-[`.github/workflows/docker.yml`](.github/workflows/docker.yml) runs on `v*` tags. It logs in to GHCR with `GITHUB_TOKEN` and publishes `ghcr.io/nopp/k8s-agent-ai` for `linux/amd64` only. The lab nodes are amd64.
-
-A `v1.2.3` tag produces these image tags:
-
-- `1.2.3`
-- `1.2`
-- `latest`
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The package is at [github.com/nopp/k8s-agent-ai/pkgs](https://github.com/nopp/k8s-agent-ai/pkgs). The repository is private, so the image is private too.
-
 ## Run in the cluster
 
 The manifest creates the `podbeacon` namespace, the ServiceAccount, `get/list/watch` on pods and events, `get` on `pods/log`, and the Deployment. The image is `ghcr.io/nopp/k8s-agent-ai:1.0.5`, with `imagePullPolicy: IfNotPresent`. The `ghcr` secret lets the node pull that image.

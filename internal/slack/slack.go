@@ -28,12 +28,13 @@ type Alert struct {
 	Plain      bool
 }
 
-// Message is one Slack post. The channel shows a short colored card.
-// Text is the notification line. Red is a problem, green is resolved,
-// gray means the pod is gone.
+// Message is one Slack post. The channel shows only the colored card.
+// A top-level text field is printed above that card, so alerts leave it empty.
+// The attachment fallback is the notification line. Red is a problem, green
+// is resolved, gray means the pod is gone.
 type Message struct {
 	Channel     string       `json:"channel,omitempty"`
-	Text        string       `json:"text"`
+	Text        string       `json:"text,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 	UnfurlLinks bool         `json:"unfurl_links"`
 	UnfurlMedia bool         `json:"unfurl_media"`
@@ -196,7 +197,6 @@ func shortImage(s string) string {
 func message(line, preview, color string, blocks []Block) Message {
 	line = clip(line, 200)
 	return Message{
-		Text:    line,
 		Preview: strings.TrimRight(preview, "\n"),
 		Attachments: []Attachment{{
 			Color:    color,

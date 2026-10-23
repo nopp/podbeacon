@@ -32,6 +32,12 @@ func TestRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if msg.Text != "" {
+		t.Fatalf("channel text %q", msg.Text)
+	}
+	if msg.Attachments[0].Fallback == "" {
+		t.Fatal("missing notification fallback")
+	}
 	for _, want := range []string{`"attachments"`, `"blocks"`, colorProblem, "Likely cause", "CrashLoopBackOff no container api", "`nginx:9`", `"unfurl_links":false`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("missing %q in %s", want, raw)
@@ -101,6 +107,9 @@ func TestRenderClosed(t *testing.T) {
 	raw, err := json.Marshal(fixed)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if fixed.Text != "" {
+		t.Fatalf("channel text %q", fixed.Text)
 	}
 	if strings.Contains(string(raw), "Likely cause") || !strings.Contains(string(raw), colorResolved) || strings.Contains(string(raw), colorProblem) {
 		t.Fatalf("fixed json %s", raw)
