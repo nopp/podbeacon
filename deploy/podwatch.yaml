@@ -54,6 +54,8 @@ spec:
         app: podwatch
     spec:
       serviceAccountName: podwatch
+      imagePullSecrets:
+        - name: ghcr
       automountServiceAccountToken: true
       enableServiceLinks: false
       securityContext:
@@ -63,8 +65,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: podwatch
-          image: podwatch:dev
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/nopp/k8s-agent-ai:latest
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

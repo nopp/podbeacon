@@ -91,16 +91,41 @@ Sem `--dry-run`, a mensagem vai para o Slack. Sem `--once`, o processo fica no l
 go test ./...
 ```
 
-## Rodar no cluster
+## Publicar a imagem
 
-O manifesto cria o namespace `podwatch`, a ServiceAccount, a permissão de `get/list/watch` em pods e events, `get` em `pods/log`, e o Deployment.
+O workflow [`.github/workflows/docker.yml`](.github/workflows/docker.yml) roda em tags `v*`. Ele faz login no GHCR com `GITHUB_TOKEN` e publica `ghcr.io/nopp/k8s-agent-ai` para `linux/amd64` e `linux/arm64`.
+
+Uma tag `v1.2.3` gera estas tags de imagem:
+
+- `1.2.3`
+- `1.2`
+- `latest`
 
 ```bash
-docker build -t podwatch:dev .
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+O pacote fica em [github.com/nopp/k8s-agent-ai/pkgs](https://github.com/nopp/k8s-agent-ai/pkgs). O repositório é privado, então a imagem também é privada.
+
+## Rodar no cluster
+
+O manifesto cria o namespace `podwatch`, a ServiceAccount, a permissão de `get/list/watch` em pods e events, `get` em `pods/log`, e o Deployment. A imagem é `ghcr.io/nopp/k8s-agent-ai:latest`, com `imagePullPolicy: Always`. O secret `ghcr` é o que permite ao nó baixar essa imagem.
+
+Crie um PAT clássico com `read:packages`, ou um fine-grained com leitura de packages neste repositório.
+
+```bash
+kubectl apply -f deploy/podwatch.yaml
+kubectl -n podwatch create secret docker-registry ghcr \
+  --docker-server=ghcr.io \
+  --docker-username=nopp \
+  --docker-password='<PAT com read:packages>'
 kubectl -n podwatch create secret generic podwatch \
   --from-literal=XAI_API_KEY='...' \
   --from-literal=SLACK_WEBHOOK_URL='https://hooks.slack.com/services/...'
-kubectl apply -f deploy/podwatch.yaml
+kubectl -n podwatch rollout restart deployment/podwatch
 ```
 
-A imagem do manifesto é `podwatch:dev` com `imagePullPolicy: IfNotPresent`. Num kind ou minikube, carregue essa imagem no nó antes do apply. O Secret entra por `envFrom`. Intervalo, graça, cooldown, namespaces excluídos e o teto de alertas estão no Deployment e podem ser alterados lá.
+O nome da tag `:latest` não muda entre versões, então um `kubectl apply` repetido não recria o Pod. Depois de publicar outra tag, rode o `rollout restart` para ele baixar a imagem nova. Para fixar uma versão, troque a imagem do Deployment para `ghcr.io/nopp/k8s-agent-ai:0.1.0`.
+
+O Secret `podwatch` entra por `envFrom`. Intervalo, graça, cooldown, namespaces excluídos e o teto de alertas estão no Deployment e podem ser alterados lá.
